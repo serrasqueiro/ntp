@@ -444,6 +444,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\..\..\libntp\libssl_compat.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\..\..\lib\isc\log.c"
 				>
 			</File>
@@ -493,6 +497,10 @@
 			</File>
 			<File
 				RelativePath="..\..\..\..\libntp\ntp_calendar.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\..\..\libntp\ntp_calgps.c"
 				>
 			</File>
 			<File
@@ -652,6 +660,14 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\..\..\lib\isc\tsmemcmp.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\..\..\libntp\timespecops.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\..\..\libntp\uglydate.c"
 				>
 			</File>
@@ -677,6 +693,10 @@
 			</File>
 			<File
 				RelativePath="..\..\..\..\libntp\work_thread.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\..\..\libntp\xsbprintf.c"
 				>
 			</File>
 			<File
@@ -765,6 +785,14 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\..\..\include\libntp.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\..\..\include\libssl_compat.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\..\..\lib\isc\include\isc\log.h"
 				>
 			</File>
@@ -806,6 +834,10 @@
 			</File>
 			<File
 				RelativePath="..\..\..\..\include\ntp_calendar.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\..\..\include\ntp_calgps.h"
 				>
 			</File>
 			<File

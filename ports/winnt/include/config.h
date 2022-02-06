@@ -259,6 +259,8 @@ typedef int socklen_t;
 #ifdef OPENSSL
 # define USE_OPENSSL_CRYPTO_RAND 1
 # define AUTOKEY
+# define HAVE_OPENSSL_CMAC_H
+# define ENABLE_CMAC
 #endif
 extern void arc4random_buf(void *buf, size_t nbytes);
 
@@ -381,6 +383,10 @@ typedef int ssize_t;	/* ssize is an int */
 #define HAVE_SIZE_T             1     
 #define HAVE_PTRDIFF_T  		1
 
+#if defined(_MSC_VER) && _MSC_VER >= 1900
+#define HAVE_WINT_T				1
+#endif
+
 # define SIZEOF_SIGNED_CHAR	1
 # define SIZEOF_SHORT		2
 # define SIZEOF_INT		4
@@ -405,6 +411,8 @@ typedef int ssize_t;	/* ssize is an int */
 # define HAVE_SETVBUF			1
 # define HAVE_STRCHR			1	/* for libopts */
 # define HAVE_STRDUP			1
+# define HAVE_STRNLEN			1
+# define HAVE_MEMCHR			1
 # define HAVE_TIMEGM			1	/* actually _mkgmtime */
 
 # define HAVE_STRUCT_TIMESPEC
@@ -546,6 +554,12 @@ typedef unsigned long uintptr_t;
 #undef STRINGIZE
 
 #define  SIOCGIFFLAGS SIO_GET_INTERFACE_LIST /* used in ntp_io.c */
+
+/* Bug 2978 mitigation -- unless defined elsewhere, do it here*/
+#ifndef DYNAMIC_INTERLEAVE
+# define DYNAMIC_INTERLEAVE 0
+#endif
+
 /*
  * Below this line are includes which must happen after the bulk of
  * config.h is processed.  If you need to add another #include to this

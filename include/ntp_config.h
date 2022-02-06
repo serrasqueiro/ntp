@@ -6,6 +6,7 @@
 #endif /* HAVE_SYS_RESOURCE_H */
 
 #include "ntp_machine.h"
+#include "ntp_psl.h"
 #include "ntpsim.h"
 
 
@@ -54,18 +55,27 @@ typedef struct int_range_tag {
 	int	last;
 } int_range;
 
-/* Structure for storing an attribute-value pair  */
+/* generic list node */
+typedef struct any_node_tag any_node;
+struct any_node_tag {
+	any_node *	link;
+};
+
+typedef DECL_FIFO_ANCHOR(any_node) any_node_fifo;
+
+/* Structure for storing an attribute-value pair */
 typedef struct attr_val_tag attr_val;
 struct attr_val_tag {
 	attr_val *	link;
 	int		attr;
 	int		type;	/* T_String, T_Integer, ... */
+	int		flag;	/* auxiliary flags */
 	union val {
-		int		i;
-		u_int		u;
-		int_range	r;
-		double		d;
-		char *		s;
+		double		d;	/* T_Double */
+		int		i;	/* T_Integer */
+		int_range	r;	/* T_Intrange */
+		char *		s;	/* T_String */
+		u_int		u;	/* T_U_int */
 	} value;
 };
 
@@ -102,8 +112,10 @@ struct restrict_node_tag {
 	restrict_node *	link;
 	address_node *	addr;
 	address_node *	mask;
-	int_fifo *	flags;
+	attr_val_fifo *	flag_tok_fifo;
 	int		line_no;
+	short		ippeerlimit;
+	short		srvfuzrft;
 };
 
 typedef DECL_FIFO_ANCHOR(restrict_node) restrict_fifo;
@@ -237,6 +249,7 @@ struct config_tree_tag {
 	attr_val_fifo *	vars;
 	nic_rule_fifo *	nic_rules;
 	int_fifo *	reset_counters;
+	attr_val_fifo *	pollskewlist;
 
 	sim_fifo *	sim_details;
 	int		mdnstries;
@@ -263,12 +276,23 @@ typedef struct settrap_parms_tag {
 } settrap_parms;
 
 
+/*
+** Data Minimization Items
+*/
+
+/* Serverresponse fuzz reftime: stored in 'restrict' fifos */
+
+
 /* get text from T_ tokens */
 const char * token_name(int token);
 
 /* generic fifo routines for structs linked by 1st member */
-void*	append_gen_fifo(void *fifo, void *entry);
+typedef void (*fifo_deleter)(void*);
+void *	destroy_gen_fifo(void *fifo, fifo_deleter func);
+void *	append_gen_fifo(void *fifo, void *entry);
 void *	concat_gen_fifos(void *first, void *second);
+#define DESTROY_G_FIFO(pf, func)	\
+	((pf) = destroy_gen_fifo((pf), (fifo_deleter)(func)))
 #define APPEND_G_FIFO(pf, pe)		\
 	((pf) = append_gen_fifo((pf), (pe)))
 #define CONCAT_G_FIFOS(first, second)	\
@@ -285,15 +309,17 @@ address_node *create_address_node(char *addr, int type);
 void destroy_address_node(address_node *my_node);
 attr_val *create_attr_dval(int attr, double value);
 attr_val *create_attr_ival(int attr, int value);
-attr_val *create_attr_uval(int attr, u_int value);
-attr_val *create_attr_rangeval(int attr, int first, int last);
+attr_val *create_attr_rval(int attr, int first, int last);
 attr_val *create_attr_sval(int attr, const char *s);
+attr_val *create_attr_uval(int attr, u_int value);
+void	  destroy_attr_val(attr_val *node);
 filegen_node *create_filegen_node(int filegen_token,
 				  attr_val_fifo *options);
 string_node *create_string_node(char *str);
 restrict_node *create_restrict_node(address_node *addr,
 				    address_node *mask,
-				    int_fifo *flags, int line_no);
+				    short ippeerlimit,
+				    attr_val_fifo *flags, int line_no);
 int_node *create_int_node(int val);
 addr_opts_node *create_addr_opts_node(address_node *addr,
 				      attr_val_fifo *options);

@@ -61,6 +61,15 @@ extern void test_LFProundtrip(void);
 extern void test_ToString(void);
 
 
+//=======Suite Setup=====
+static void suite_setup(void)
+{
+extern int change_iobufs(int);
+extern int change_logfile(const char*, int);
+change_iobufs(1);
+change_logfile("stderr", 0);
+}
+
 //=======Test Reset Option=====
 void resetTest(void);
 void resetTest(void)
@@ -76,35 +85,36 @@ char const *progname;
 int main(int argc, char *argv[])
 {
   progname = argv[0];
+  suite_setup();
   UnityBegin("timevalops.c");
-  RUN_TEST(test_Helpers1, 39);
-  RUN_TEST(test_Normalise, 40);
-  RUN_TEST(test_SignNoFrac, 41);
-  RUN_TEST(test_SignWithFrac, 42);
-  RUN_TEST(test_CmpFracEQ, 43);
-  RUN_TEST(test_CmpFracGT, 44);
-  RUN_TEST(test_CmpFracLT, 45);
-  RUN_TEST(test_AddFullNorm, 46);
-  RUN_TEST(test_AddFullOflow1, 47);
-  RUN_TEST(test_AddUsecNorm, 48);
-  RUN_TEST(test_AddUsecOflow1, 49);
-  RUN_TEST(test_SubFullNorm, 50);
-  RUN_TEST(test_SubFullOflow, 51);
-  RUN_TEST(test_SubUsecNorm, 52);
-  RUN_TEST(test_SubUsecOflow, 53);
-  RUN_TEST(test_Neg, 54);
-  RUN_TEST(test_AbsNoFrac, 55);
-  RUN_TEST(test_AbsWithFrac, 56);
-  RUN_TEST(test_Helpers2, 57);
-  RUN_TEST(test_ToLFPbittest, 58);
-  RUN_TEST(test_ToLFPrelPos, 59);
-  RUN_TEST(test_ToLFPrelNeg, 60);
-  RUN_TEST(test_ToLFPabs, 61);
-  RUN_TEST(test_FromLFPbittest, 62);
-  RUN_TEST(test_FromLFPrelPos, 63);
-  RUN_TEST(test_FromLFPrelNeg, 64);
-  RUN_TEST(test_LFProundtrip, 65);
-  RUN_TEST(test_ToString, 66);
+  RUN_TEST(test_Helpers1, 37);
+  RUN_TEST(test_Normalise, 38);
+  RUN_TEST(test_SignNoFrac, 39);
+  RUN_TEST(test_SignWithFrac, 40);
+  RUN_TEST(test_CmpFracEQ, 41);
+  RUN_TEST(test_CmpFracGT, 42);
+  RUN_TEST(test_CmpFracLT, 43);
+  RUN_TEST(test_AddFullNorm, 44);
+  RUN_TEST(test_AddFullOflow1, 45);
+  RUN_TEST(test_AddUsecNorm, 46);
+  RUN_TEST(test_AddUsecOflow1, 47);
+  RUN_TEST(test_SubFullNorm, 48);
+  RUN_TEST(test_SubFullOflow, 49);
+  RUN_TEST(test_SubUsecNorm, 50);
+  RUN_TEST(test_SubUsecOflow, 51);
+  RUN_TEST(test_Neg, 52);
+  RUN_TEST(test_AbsNoFrac, 53);
+  RUN_TEST(test_AbsWithFrac, 54);
+  RUN_TEST(test_Helpers2, 55);
+  RUN_TEST(test_ToLFPbittest, 56);
+  RUN_TEST(test_ToLFPrelPos, 57);
+  RUN_TEST(test_ToLFPrelNeg, 58);
+  RUN_TEST(test_ToLFPabs, 59);
+  RUN_TEST(test_FromLFPbittest, 60);
+  RUN_TEST(test_FromLFPrelPos, 61);
+  RUN_TEST(test_FromLFPrelNeg, 62);
+  RUN_TEST(test_LFProundtrip, 63);
+  RUN_TEST(test_ToString, 64);
 
   return (UnityEnd());
 }

@@ -6,25 +6,34 @@ libexec_PROGRAMS=	$(NTPQ_DL)
 sbin_PROGRAMS=	$(NTPQ_DS)
 
 AM_CFLAGS = $(CFLAGS_NTP)
+AM_CFLAGS += $(NTP_HARD_CFLAGS)
 
 AM_CPPFLAGS  = $(NTP_INCS)
 AM_CPPFLAGS += $(LIBOPTS_CFLAGS)
 AM_CPPFLAGS += $(CPPFLAGS_NTP)
+AM_CPPFLAGS += $(NTP_HARD_CPPFLAGS)
 
-AM_LDFLAGS = $(LDFLAGS_NTP)
+AM_LDFLAGS  = $(LDFLAGS_NTP)
+AM_LDFLAGS += $(NTP_HARD_LDFLAGS)
 
 # LDADD might need RESLIB and ADJLIB
 ntpq_LDADD  = version.o $(LIBOPTS_LDADD)
 ntpq_LDADD += ../libntp/libntp.a $(LDADD_LIBNTP) $(LIBM)
 ntpq_LDADD += $(PTHREAD_LIBS) $(EDITLINE_LIBS)
 ntpq_LDADD += $(LDADD_NTP)
-noinst_HEADERS=	ntpq.h
-noinst_LIBRARIES=	libntpq.a
-libntpq_a_CFLAGS=	-DNO_MAIN_ALLOWED -DBUILD_AS_LIB
-CLEANFILES=
-DISTCLEANFILES=	.version version.c config.log $(man_MANS)
-ETAGS_ARGS=	Makefile.am
-EXTRA_DIST=			\
+ntpq_LDADD += $(NTP_HARD_LDFLAGS)
+
+noinst_HEADERS =	ntpq.h
+
+noinst_LIBRARIES =	libntpq.a
+libntpq_a_CFLAGS =	$(AM_CFLAGS)
+libntpq_a_CFLAGS +=	-DNO_MAIN_ALLOWED -DBUILD_AS_LIB
+libntpq_a_CPPFLAGS =	$(AM_CPPFLAGS)
+
+CLEANFILES =
+DISTCLEANFILES =	.version version.c config.log $(man_MANS)
+ETAGS_ARGS =	Makefile.am
+EXTRA_DIST =			\
 	invoke-ntpq.menu	\
 	invoke-ntpq.texi	\
 	ntpq-opts.def		\
@@ -71,7 +80,7 @@ libntpq_a_SOURCES =	libntpq.c libntpq.h libntpq_subs.c
 
 $(srcdir)/ntpq-opts.h: $(srcdir)/ntpq-opts.c
 	@: do-nothing action to avoid default SCCS get, .h built with .c
-	
+
 $(srcdir)/ntpq-opts.c: $(srcdir)/ntpq-opts.def $(std_def_list)
 	$(run_ag) ntpq-opts.def
 
@@ -103,7 +112,7 @@ ntpq.$(NTPQ_MS): $(srcdir)/ntpq.$(MANTAGFMT).in $(top_builddir)/config.status
 
 $(srcdir)/invoke-ntpq.menu: $(srcdir)/invoke-ntpq.texi
 	@: do-nothing action to avoid default SCCS get, .menu built with .texi
-	
+
 $(srcdir)/invoke-ntpq.texi: $(srcdir)/ntpq-opts.def $(std_def_list)
 	$(run_ag) -Tagtexi-cmd.tpl -DLEVEL=section ntpq-opts.def
 	$(top_srcdir)/scripts/build/check--help $@
@@ -120,7 +129,7 @@ $(top_srcdir)/sntp/scm-rev:
 
 version.c: $(ntpq_OBJECTS) ../libntp/libntp.a Makefile $(top_srcdir)/sntp/scm-rev
 	env CSET=`cat $(top_srcdir)/sntp/scm-rev` $(top_builddir)/scripts/build/mkver ntpq
-	
+
 version.o: version.c
 	env CCACHE_DISABLE=1 $(COMPILE) -c version.c -o version.o
 

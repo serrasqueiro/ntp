@@ -16,6 +16,7 @@ noinst_HEADERS =	\
 	intreswork.h	\
 	iosignal.h	\
 	l_stdlib.h	\
+	libssl_compat.h	\
 	lib_strbuf.h	\
 	libntp.h	\
 	mbg_gps166.h	\
@@ -24,6 +25,7 @@ noinst_HEADERS =	\
 	ntp.h		\
 	ntp_assert.h	\
 	ntp_calendar.h	\
+	ntp_calgps.h	\
 	ntp_cmdargs.h	\
 	ntp_config.h	\
 	ntp_control.h	\
@@ -45,6 +47,7 @@ noinst_HEADERS =	\
 	ntp_md5.h	\
 	ntp_net.h	\
 	ntp_proto.h	\
+	ntp_psl.h	\
 	ntp_random.h	\
 	ntp_refclock.h	\
 	ntp_request.h	\
@@ -75,6 +78,7 @@ noinst_HEADERS =	\
 	timespecops.h	\
 	timetoa.h	\
 	timevalops.h	\
+	timexsup.h	\
 	trimble.h	\
 	vint64ops.h	\
 	$(NULL)

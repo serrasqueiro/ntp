@@ -39,6 +39,15 @@ extern void test_NegativeMsFraction(void);
 extern void test_InvalidChars(void);
 
 
+//=======Suite Setup=====
+static void suite_setup(void)
+{
+extern int change_iobufs(int);
+extern int change_logfile(const char*, int);
+change_iobufs(1);
+change_logfile("stderr", 0);
+}
+
 //=======Test Reset Option=====
 void resetTest(void);
 void resetTest(void)
@@ -54,6 +63,7 @@ char const *progname;
 int main(int argc, char *argv[])
 {
   progname = argv[0];
+  suite_setup();
   UnityBegin("strtolfp.c");
   RUN_TEST(test_PositiveInteger, 12);
   RUN_TEST(test_NegativeInteger, 13);

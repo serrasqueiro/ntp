@@ -5,10 +5,10 @@ NULL =
 # moved sntp first to get libtool and libevent built.
 
 SUBDIRS =		\
-	sntp		\
 	scripts		\
 	include		\
 	libntp		\
+	sntp		\
 	libparse	\
 	ntpd		\
 	ntpdate		\
@@ -36,6 +36,7 @@ EXTRA_DIST =			\
 	README.hackers		\
 	README.leapsmear	\
 	README.patches		\
+	README.pullrequests	\
 	README.refclocks	\
 	README.versions		\
 	TODO			\

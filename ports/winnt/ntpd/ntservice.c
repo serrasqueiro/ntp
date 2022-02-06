@@ -46,15 +46,16 @@ extern int accept_wildcard_if_for_winnt;
 /*
  * Forward declarations
  */
-void uninit_io_completion_port();
-int ntpdmain(int argc, char *argv[]);
-void WINAPI ServiceControl(DWORD dwCtrlCode);
-void ntservice_exit(void);
+extern void uninit_io_completion_port();
+extern int ntpdmain(int argc, char *argv[]);
+extern void WINAPI ServiceControl(DWORD dwCtrlCode);
+extern void ntservice_exit(void);
 
 #ifdef WRAP_DBG_MALLOC
 void *wrap_dbg_malloc(size_t s, const char *f, int l);
 void *wrap_dbg_realloc(void *p, size_t s, const char *f, int l);
 void wrap_dbg_free(void *p);
+void wrap_dbg_free_ex(void *p, const char *f, int l);
 #endif
 
 void WINAPI
@@ -146,7 +147,8 @@ int main(
  * Initialize the Service by registering it.
  */
 void
-ntservice_init() {
+ntservice_init(void)
+{
 	char ConsoleTitle[256];
 
 	if (!foreground) {
@@ -155,10 +157,10 @@ ntservice_init() {
 					ServiceControl);
 		if (!hServiceStatus) {
 			NTReportError(NTP_SERVICE_NAME,
-				"could not register service control handler");
+				"could not register with SCM");
 			exit(1);
 		}
-		UpdateSCM(SERVICE_RUNNING);
+		UpdateSCM(SERVICE_START_PENDING);
 	} else {
 		snprintf(ConsoleTitle, sizeof(ConsoleTitle),
 			 "NTP Version %s", Version);
@@ -191,18 +193,32 @@ ntservice_init() {
 	atexit( ntservice_exit );
 }
 
+void
+ntservice_isup(void)
+{
+	if (!foreground) {
+		/* Register handler with the SCM */
+		if (!hServiceStatus) {
+			NTReportError(NTP_SERVICE_NAME,
+				"could not report to SCM");
+			exit(1);
+		}
+		UpdateSCM(SERVICE_RUNNING);
+	}
+}
 
 /*
  * Routine to check if the service is stopping
  * because the computer is shutting down
  */
 BOOL
-ntservice_systemisshuttingdown() {
+ntservice_systemisshuttingdown(void)
+{
 	return computer_shutting_down;
 }
 
 void
-ntservice_exit( void )
+ntservice_exit(void)
 {
 	uninit_io_completion_port();
 	Sleep( 200 );  	//##++ 
@@ -229,6 +245,11 @@ ServiceControl(
 	DWORD dwCtrlCode
 	) 
 {
+	static const char * const msg_tab[2] = {
+		"explicit stop",
+		"system shutdown"
+	};
+
 	switch (dwCtrlCode) {
 
 	case SERVICE_CONTROL_SHUTDOWN:
@@ -237,27 +258,38 @@ ServiceControl(
 
 	case SERVICE_CONTROL_STOP:
 		if (WaitableExitEventHandle != NULL) {
-			SetEvent(WaitableExitEventHandle);
+			msyslog(LOG_INFO, "SCM requests stop (%s)",
+				msg_tab[!!computer_shutting_down]);
 			UpdateSCM(SERVICE_STOP_PENDING);
+			SetEvent(WaitableExitEventHandle);
 			Sleep(100);  //##++
+			break;
 		}
-		return;
+		msyslog(LOG_ERR, "SCM requests stop (%s), but have no exit event!",
+			msg_tab[!!computer_shutting_down]);
+		/* FALLTHROUGH */
 
 	case SERVICE_CONTROL_PAUSE:
 	case SERVICE_CONTROL_CONTINUE:
 	case SERVICE_CONTROL_INTERROGATE:
 	default:
+		UpdateSCM(SERVICE_RUNNING);
 		break;
 	}
-	UpdateSCM(SERVICE_RUNNING);
 }
 
 /*
  * Tell the Service Control Manager the state of the service.
  */
-void UpdateSCM(DWORD state) {
-	SERVICE_STATUS ss;
+void
+UpdateSCM(
+	DWORD state
+	)
+{
 	static DWORD dwState = SERVICE_STOPPED;
+	static DWORD dwCheck = 0;
+
+	SERVICE_STATUS ss;
 
 	if (hServiceStatus) {
 		if (state)
@@ -266,12 +298,26 @@ void UpdateSCM(DWORD state) {
 		ZERO(ss);
 		ss.dwServiceType |= SERVICE_WIN32_OWN_PROCESS;
 		ss.dwCurrentState = dwState;
-		ss.dwControlsAccepted = SERVICE_ACCEPT_STOP |
-					SERVICE_ACCEPT_SHUTDOWN;
-		ss.dwCheckPoint = 0;
-		ss.dwServiceSpecificExitCode = 0;
-		ss.dwWin32ExitCode = NO_ERROR;
-		ss.dwWaitHint = dwState == SERVICE_STOP_PENDING ? 5000 : 1000;
+		/* ss.dwServiceSpecificExitCode = 0; default by ZERO(ss) */
+		/* ss.dwWin32ExitCode = NO_ERROR;    default by ZERO(ss) */
+
+		switch (dwState) {
+		case SERVICE_START_PENDING:
+			ss.dwControlsAccepted = 0;
+			ss.dwWaitHint = 15000;
+			ss.dwCheckPoint = ++dwCheck;
+			break;
+		case SERVICE_STOP_PENDING:
+			ss.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+			ss.dwWaitHint = 3000;
+			ss.dwCheckPoint = ++dwCheck;
+			break;
+		default:
+			ss.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+			ss.dwWaitHint = 1000;
+			ss.dwCheckPoint = dwCheck = 0;
+			break;
+		}
 
 		SetServiceStatus(hServiceStatus, &ss);
 	}

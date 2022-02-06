@@ -34,6 +34,15 @@ extern void test_DateLeapYear(void);
 extern void test_WraparoundDateIn2036(void);
 
 
+//=======Suite Setup=====
+static void suite_setup(void)
+{
+extern int change_iobufs(int);
+extern int change_logfile(const char*, int);
+change_iobufs(1);
+change_logfile("stderr", 0);
+}
+
 //=======Test Reset Option=====
 void resetTest(void);
 void resetTest(void)
@@ -49,6 +58,7 @@ char const *progname;
 int main(int argc, char *argv[])
 {
   progname = argv[0];
+  suite_setup();
   UnityBegin("caltontp.c");
   RUN_TEST(test_DateGivenMonthDay, 5);
   RUN_TEST(test_DateGivenYearDay, 6);

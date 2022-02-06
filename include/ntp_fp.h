@@ -344,15 +344,15 @@ typedef u_int32 u_fp;
 /*
  * Prototypes
  */
-extern	char *	dofptoa		(u_fp, int, short, int);
-extern	char *	dolfptoa	(u_int32, u_int32, int, short, int);
+extern	char *	dofptoa		(u_fp, char, short, int);
+extern	char *	dolfptoa	(u_int32, u_int32, char, short, int);
 
 extern	int	atolfp		(const char *, l_fp *);
 extern	int	buftvtots	(const char *, l_fp *);
 extern	char *	fptoa		(s_fp, short);
 extern	char *	fptoms		(s_fp, short);
 extern	int	hextolfp	(const char *, l_fp *);
-extern  void	gpstolfp	(int, int, unsigned long, l_fp *);
+extern  void	gpstolfp	(u_int, u_int, unsigned long, l_fp *);
 extern	int	mstolfp		(const char *, l_fp *);
 extern	char *	prettydate	(l_fp *);
 extern	char *	gmprettydate	(l_fp *);
@@ -364,6 +364,7 @@ extern	void	init_systime	(void);
 extern	void	get_systime	(l_fp *);
 extern	int	step_systime	(double);
 extern	int	adj_systime	(double);
+extern	int	clamp_systime	(void);
 
 extern	struct tm * ntp2unix_tm (u_int32 ntp, int local);
 

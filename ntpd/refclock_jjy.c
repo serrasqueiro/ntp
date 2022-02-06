@@ -4,7 +4,7 @@
 
 /**********************************************************************/
 /*								      */
-/*  Copyright (C) 2001-2015, Takao Abe.  All rights reserved.	      */
+/*  Copyright (C) 2001-2020, Takao Abe.  All rights reserved.	      */
 /*								      */
 /*  Permission to use, copy, modify, and distribute this software     */
 /*  and its documentation for any purpose is hereby granted	      */
@@ -106,6 +106,22 @@
 /*  2015/05/15							      */
 /*    [Add]    Support the SEIKO TIME SYSTEMS TDC-300		      */
 /*								      */
+/*  2016/05/08							      */
+/*    [Fix]    C-DEX JST2000                                          */
+/*             Thanks to Mr. Kuramatsu for the report and the patch.  */
+/*								      */
+/*  2017/04/30							      */
+/*    [Change] Avoid a wrong report of the coverity static analysis   */
+/*             tool. ( The code is harmless and has no bug. )	      */
+/*             teljjy_conn_send()				      */
+/*								      */
+/*  2020/01/19							      */
+/*    [Change] Handling TS-JJY01/02 status of the the STUS reply.     */
+/*             Time synchronization can be skipped by the settings of */
+/*             the flag2 when the status of the reply is UNADJUSTED.  */
+/*    [Change] Quiet compilation for the GCC 9.2.0.                   */
+/*    [Fix]    Correct typos in comment lines                         */
+/*								      */
 /**********************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -185,6 +201,10 @@ struct jjyunit {
 	char	sTextBuf [ MAX_RAWBUF ] ;
 	int 	iTextBufLen ;
 	char	bSkipCntrlCharOnly ;
+/* TS-JJY01, TS-JJY02 */
+	time_t	tLastAdjustedTimestamp ;
+	char	bStusReplyAdjusted ;
+	char	bStusReplyAdjustedAtLeastOnce ;
 /* Telephone JJY auto measurement of the loopback delay */
 	char	bLoopbackMode ;
 	short	iLoopbackCount ;
@@ -362,7 +382,7 @@ struct	refclock refclock_jjy = {
  * Local constants definition
  */
 
-#define	MAX_LOGTEXT	100
+#define	MAX_LOGTEXT	200
 
 #ifndef	TRUE
 #define	TRUE	(0==0)
@@ -389,6 +409,7 @@ struct	refclock refclock_jjy = {
 #define	JJY_CLOCKSTATS_MARK_ATTENTION	5
 #define	JJY_CLOCKSTATS_MARK_WARNING	6
 #define	JJY_CLOCKSTATS_MARK_ERROR	7
+#define	JJY_CLOCKSTATS_MARK_BUG 	8
 
 /* Local constants definition for the clockstats messages */
 
@@ -400,6 +421,7 @@ struct	refclock refclock_jjy = {
 #define	JJY_CLOCKSTATS_MESSAGE_LOOPBACK_DELAY   	"* Loopback delay : %d.%03d mSec."
 #define	JJY_CLOCKSTATS_MESSAGE_DELAY_ADJUST     	"* Delay adjustment : %d mSec. ( valid=%hd/%d )"
 #define	JJY_CLOCKSTATS_MESSAGE_DELAY_UNADJUST   	"* Delay adjustment : None ( valid=%hd/%d )"
+#define	JJY_CLOCKSTATS_MESSAGE_STUS_UNADJUSTED  	"* Skip time synchronization : STUS is 'UNADJUSTED' for %.0lf %s"
 
 #define	JJY_CLOCKSTATS_MESSAGE_UNEXPECTED_REPLY     	"# Unexpected reply : [%s]"
 #define	JJY_CLOCKSTATS_MESSAGE_INVALID_LENGTH     	"# Invalid length : length=%d"
@@ -588,7 +610,7 @@ jjy_receive ( struct recvbuf *rbufp )
 	l_fp	tRecvTimestamp;		/* arrival timestamp */
 	int 	rc ;
 	char	*pBuf, sLogText [ MAX_LOGTEXT ] ;
-	int 	iLen, iCopyLen ;
+	size_t 	iLen, iCopyLen ;
 	int 	i, j, iReadRawBuf, iBreakPosition ;
 
 	/*
@@ -609,7 +631,7 @@ jjy_receive ( struct recvbuf *rbufp )
 		/* To avoid its claim, pass the value BMAX-1. */
 
 		/*
-		 * Append received charaters to temporary buffer
+		 * Append received characters to temporary buffer
 		 */
 		for ( i = 0 ;
 		      i < pp->lencode && up->iRawBufLen < MAX_RAWBUF - 2 ;
@@ -693,7 +715,7 @@ jjy_receive ( struct recvbuf *rbufp )
 				iBreakPosition = up->iRawBufLen - 1 ;
 			}
 
-			/* Copy charaters from temporary buffer to process buffer */
+			/* Copy characters from temporary buffer to process buffer */
 			up->iLineBufLen = up->iTextBufLen = 0 ;
 			for ( i = iReadRawBuf ; i <= iBreakPosition ; i ++ ) {
 
@@ -740,8 +762,8 @@ jjy_receive ( struct recvbuf *rbufp )
 		}
 
 		iCopyLen = ( iLen <= sizeof(sLogText)-1 ? iLen : sizeof(sLogText)-1 ) ;
-		strncpy( sLogText, pBuf, iCopyLen ) ;
-		sLogText[iCopyLen] = 0 ;
+		memcpy( sLogText, pBuf, iCopyLen ) ;
+		sLogText[iCopyLen] = '\0' ;
 		jjy_write_clockstats( peer, JJY_CLOCKSTATS_MARK_RECEIVE, sLogText ) ;
 
 		switch ( up->unittype ) {
@@ -916,7 +938,7 @@ jjy_poll ( int unit, struct peer *peer )
 	up->iRawBufLen = 0 ;
 
 	switch ( up->unittype ) {
-	
+
 	case UNITTYPE_TRISTATE_JJY01 :
 		jjy_poll_tristate_jjy01  ( unit, peer ) ;
 		break ;
@@ -981,7 +1003,7 @@ jjy_timer ( int unit, struct peer *peer )
 	}
 
 	switch ( up->unittype ) {
-	
+
 	case UNITTYPE_TELEPHONE :
 		jjy_timer_telephone ( unit, peer ) ;
 		break ;
@@ -1010,8 +1032,8 @@ jjy_synctime ( struct peer *peer, struct refclockproc *pp, struct jjyunit *up )
 	pp->second = up->second ;
 	pp->nsec   = up->msecond * 1000000 ;
 
-	/* 
-	 * JST to UTC 
+	/*
+	 * JST to UTC
 	 */
 	pp->hour -= 9 ;
 	if ( pp->hour < 0 ) {
@@ -1060,7 +1082,7 @@ jjy_synctime ( struct peer *peer, struct refclockproc *pp, struct jjyunit *up )
 	case 5 : cStatus = '#' ; pStatus = "Selected"  ; break ;
 	case 6 : cStatus = '*' ; pStatus = "Sys.Peer"  ; break ;
 	case 7 : cStatus = 'o' ; pStatus = "PPS.Peer"  ; break ;
-	default : break ; 
+	default : break ;
 	}
 
 	snprintf ( sLog, sizeof(sLog),
@@ -1141,6 +1163,9 @@ jjy_start_tristate_jjy01 ( int unit, struct peer *peer, struct jjyunit *up )
 	up->linespeed = SPEED232_TRISTATE_JJY01 ;
 	up->linediscipline = LDISC_CLK ;
 
+	time( &(up->tLastAdjustedTimestamp) ) ;
+	up->bStusReplyAdjustedAtLeastOnce = FALSE ;
+
 	return 0 ;
 
 }
@@ -1154,10 +1179,12 @@ jjy_receive_tristate_jjy01 ( struct recvbuf *rbufp )
 	struct refclockproc *pp ;
 	struct peer	    *peer;
 
-	char *		pBuf ;
-	char		sLog [ 100 ] ;
-	int 		iLen ;
-	int 		rc ;
+	char *	pBuf ;
+	char	sLog [ MAX_LOGTEXT ] ;
+	int 	iLen ;
+	int 	rc ;
+	time_t	now ;
+	double	fSeconds ;
 
 	const char *	pCmd ;
 	int 		iCmdLen ;
@@ -1259,11 +1286,17 @@ jjy_receive_tristate_jjy01 ( struct recvbuf *rbufp )
 	case TS_JJY01_COMMAND_NUMBER_STUS :
 
 		if ( strncmp( pBuf, TS_JJY01_REPLY_STUS_ADJUSTED,
-			     TS_JJY01_REPLY_LENGTH_STUS_ADJUSTED ) == 0
-		  || strncmp( pBuf, TS_JJY01_REPLY_STUS_UNADJUSTED,
-			     TS_JJY01_REPLY_LENGTH_STUS_UNADJUSTED ) == 0 ) {
-			/* Good */
+			     TS_JJY01_REPLY_LENGTH_STUS_ADJUSTED ) == 0 ) {
+			/* STUS reply : adjusted */
+			up->bStusReplyAdjusted = TRUE ;
+			up->bStusReplyAdjustedAtLeastOnce = TRUE ;
+			time( &(up->tLastAdjustedTimestamp) ) ;
+		} else if ( strncmp( pBuf, TS_JJY01_REPLY_STUS_UNADJUSTED,
+			             TS_JJY01_REPLY_LENGTH_STUS_UNADJUSTED ) == 0 ) {
+			/* STUS reply : unadjusted */
+			up->bStusReplyAdjusted = FALSE ;
 		} else {
+			/* Bad reply */
 			snprintf( sLog, sizeof(sLog)-1, JJY_CLOCKSTATS_MESSAGE_INVALID_REPLY,
 				  pBuf ) ;
 			jjy_write_clockstats( peer, JJY_CLOCKSTATS_MARK_ERROR, sLog ) ;
@@ -1276,11 +1309,12 @@ jjy_receive_tristate_jjy01 ( struct recvbuf *rbufp )
 	case TS_JJY01_COMMAND_NUMBER_DCST :
 
 		if ( strncmp( pBuf, TS_JJY01_REPLY_DCST_VALID,
-			     TS_JJY01_REPLY_LENGTH_DCST_VALID ) == 0
+			      TS_JJY01_REPLY_LENGTH_DCST_VALID ) == 0
 		  || strncmp( pBuf, TS_JJY01_REPLY_DCST_INVALID,
-			     TS_JJY01_REPLY_LENGTH_DCST_INVALID ) == 0 ) {
-			/* Good */
+			      TS_JJY01_REPLY_LENGTH_DCST_INVALID ) == 0 ) {
+			/* Valid reply */
 		} else {
+			/* Bad reply */
 			snprintf( sLog, sizeof(sLog)-1, JJY_CLOCKSTATS_MESSAGE_INVALID_REPLY,
 				  pBuf ) ;
 			jjy_write_clockstats( peer, JJY_CLOCKSTATS_MARK_ERROR, sLog ) ;
@@ -1290,7 +1324,7 @@ jjy_receive_tristate_jjy01 ( struct recvbuf *rbufp )
 
 		break ;
 
-	default : /*  Unexpected reply */
+	default : /* Unexpected reply */
 
 		snprintf( sLog, sizeof(sLog)-1, JJY_CLOCKSTATS_MESSAGE_INVALID_REPLY,
 			  pBuf ) ;
@@ -1303,9 +1337,27 @@ jjy_receive_tristate_jjy01 ( struct recvbuf *rbufp )
 	if ( up->iTimestampCount == 2 ) {
 		/* Process date and time */
 
-		if ( up->iTimestamp[1] - 2 <= up->iTimestamp[0]
-		  && up->iTimestamp[0]     <= up->iTimestamp[1] ) {
-			/* 3 commands (time,date,stim) was excuted in two seconds */
+		time( &now ) ;
+		fSeconds = difftime( now, up->tLastAdjustedTimestamp ) ;
+
+		if ( ( pp->sloppyclockflag & CLK_FLAG2 ) != 0
+		  && ( ! up->bStusReplyAdjusted )
+		  && ( fSeconds >= ( pp->fudgetime2 * 3600 ) || ( ! up->bStusReplyAdjustedAtLeastOnce ) ) ) {
+			/* STUS is not ADJUSTED */
+			if ( fSeconds < 60 ) {
+				snprintf( sLog, sizeof(sLog)-1, JJY_CLOCKSTATS_MESSAGE_STUS_UNADJUSTED, fSeconds, "seconds" ) ;
+			} else if ( fSeconds < 3600 ) {
+				snprintf( sLog, sizeof(sLog)-1, JJY_CLOCKSTATS_MESSAGE_STUS_UNADJUSTED, fSeconds / 60, "minutes" ) ;
+			} else if ( fSeconds < 86400 ) {
+				snprintf( sLog, sizeof(sLog)-1, JJY_CLOCKSTATS_MESSAGE_STUS_UNADJUSTED, fSeconds / 3600, "hours" ) ;
+			} else {
+				snprintf( sLog, sizeof(sLog)-1, JJY_CLOCKSTATS_MESSAGE_STUS_UNADJUSTED, fSeconds / 86400, "days" ) ;
+			}
+			jjy_write_clockstats( peer, JJY_CLOCKSTATS_MARK_INFORMATION, sLog ) ;
+			return JJY_RECEIVE_SKIP ;
+		} else if ( up->iTimestamp[1] - 2 <= up->iTimestamp[0]
+		         && up->iTimestamp[0]     <= up->iTimestamp[1] ) {
+			/* 3 commands (time,date,stim) was executed in two seconds */
 			jjy_synctime( peer, pp, up ) ;
 			return JJY_RECEIVE_DONE ;
 		} else if ( up->iTimestamp[0] > up->iTimestamp[1] ) {
@@ -1375,6 +1427,8 @@ jjy_poll_tristate_jjy01  ( int unit, struct peer *peer )
 		up->iLineCount = 2 ;
 	}
 
+	up->bStusReplyAdjusted = FALSE ;
+
 #ifdef DEBUG
 	if ( debug ) {
 		printf ( "%s (refclock_jjy.c) : flag1=%X CLK_FLAG1=%X up->iLineCount=%d\n",
@@ -1411,7 +1465,7 @@ jjy_poll_tristate_jjy01  ( int unit, struct peer *peer )
 /*                                                                                                */
 /*  Command               Response                                  Remarks                       */
 /*  --------------------  ----------------------------------------  ----------------------------  */
-/*  <ENQ>1J<ETX>          <STX>JYYMMDD HHMMSSS<ETX>                 J is a fixed character        */
+/*  <ENQ>1J<ETX>          <STX>JYYMMDDWHHMMSSS<ETX>                 J is a fixed character        */
 /*                                                                                                */
 /*################################################################################################*/
 
@@ -1451,7 +1505,7 @@ jjy_receive_cdex_jst2000 ( struct recvbuf *rbufp )
 	struct refclockproc *pp ;
 	struct peer         *peer ;
 
-	char	*pBuf, sLog [ 100 ] ;
+	char	*pBuf, sLog [ MAX_LOGTEXT ] ;
 	int 	iLen ;
 	int 	rc ;
 
@@ -1499,9 +1553,9 @@ jjy_receive_cdex_jst2000 ( struct recvbuf *rbufp )
 		return JJY_RECEIVE_ERROR ;
 	}
 
-	/* JYYMMDD HHMMSSS */
+	/* JYYMMDDWHHMMSSS */
 
-	rc = sscanf ( pBuf, "J%2d%2d%2d %2d%2d%2d%1d",
+	rc = sscanf ( pBuf, "J%2d%2d%2d%*1d%2d%2d%2d%1d",
 		      &up->year, &up->month, &up->day,
 		      &up->hour, &up->minute, &up->second,
 		      &up->msecond ) ;
@@ -1936,8 +1990,8 @@ jjy_poll_citizentic_jjy200 ( int unit, struct peer *peer )
 /*################################################################################################*/
 /*################################################################################################*/
 /*                                                                                                */
-/*  This clock has NMEA mode and command/respose mode.                                            */
-/*  When this jjy driver are used, set to command/respose mode of this clock                      */
+/*  This clock has NMEA mode and command/response mode.                                           */
+/*  When this jjy driver are used, set to command/response mode of this clock                     */
 /*  by the onboard switch SW4, and make sure the LED-Y is tured on.                               */
 /*  Other than this JJY driver, the refclock driver type 20, generic NMEA driver,                 */
 /*  works with the NMEA mode of this clock.                                                       */
@@ -2012,7 +2066,7 @@ jjy_receive_tristate_gpsclock01 ( struct recvbuf *rbufp )
 	struct peer	    *peer;
 
 	char *		pBuf ;
-	char		sLog [ 100 ] ;
+	char		sLog [ MAX_LOGTEXT ] ;
 	int 		iLen ;
 	int 		rc ;
 
@@ -2179,7 +2233,7 @@ jjy_receive_tristate_gpsclock01 ( struct recvbuf *rbufp )
 
 		if ( up->iTimestamp[1] - 2 <= up->iTimestamp[0]
 		  && up->iTimestamp[0]     <= up->iTimestamp[1] ) {
-			/* 3 commands (time,date,stim) was excuted in two seconds */
+			/* 3 commands (time,date,stim) was executed in two seconds */
 			jjy_synctime( peer, pp, up ) ;
 			return JJY_RECEIVE_DONE ;
 		} else if ( up->iTimestamp[0] > up->iTimestamp[1] ) {
@@ -2334,7 +2388,7 @@ jjy_receive_seiko_tsys_tdc_300 ( struct recvbuf *rbufp )
 	struct refclockproc	*pp ;
 	struct jjyunit		*up ;
 
-	char	*pBuf, sLog [ 100 ] ;
+	char	*pBuf, sLog [ MAX_LOGTEXT ] ;
 	int	iLen, i ;
 	int	rc, iWeekday ;
 	time_t	now ;
@@ -2684,8 +2738,9 @@ jjy_start_telephone ( int unit, struct peer *peer, struct jjyunit *up )
 {
 
 	char	sLog [ 80 ], sFirstThreeDigits [ 4 ] ;
-	int	i, iNumberOfDigitsOfPhoneNumber, iCommaCount, iCommaPosition ;
-	int	iFirstThreeDigitsCount ;
+	int	iNumberOfDigitsOfPhoneNumber, iCommaCount, iCommaPosition ;
+	size_t  i ;
+	size_t	iFirstThreeDigitsCount ;
 
 	jjy_write_clockstats( peer, JJY_CLOCKSTATS_MARK_JJY, "Refclock: Telephone JJY" ) ;
 
@@ -3294,6 +3349,7 @@ teljjy_conn_send ( struct peer *peer, struct refclockproc *pp, struct jjyunit *u
 
 	const char *	pCmd ;
 	int		i, iLen, iNextClockState ;
+	char	sLog [ 120 ] ;
 
 	DEBUG_TELJJY_PRINTF( "teljjy_conn_send" ) ;
 
@@ -3322,8 +3378,8 @@ teljjy_conn_send ( struct peer *peer, struct refclockproc *pp, struct jjyunit *u
 		/* Loopback character comes */
 #ifdef DEBUG
 		if ( debug ) {
-			printf( "refclock_jjy.c : teljjy_conn_send : iLoopbackCount=%d\n",
-				 up->iLoopbackCount ) ;
+			printf( "refclock_jjy.c : teljjy_conn_send : iClockCommandSeq=%d iLoopbackCount=%d\n",
+				 up->iClockCommandSeq, up->iLoopbackCount ) ;
 		}
 #endif
 
@@ -3346,8 +3402,18 @@ teljjy_conn_send ( struct peer *peer, struct refclockproc *pp, struct jjyunit *u
 
 		if ( teljjy_command_sequence[up->iClockCommandSeq].iExpectedReplyType == TELJJY_REPLY_LOOPBACK ) {
 			/* Loopback character and timestamp */
-			gettimeofday( &(up->sendTime[up->iLoopbackCount]), NULL ) ;
-			up->bLoopbackMode = TRUE ;
+			if ( up->iLoopbackCount < MAX_LOOPBACK ) {
+				gettimeofday( &(up->sendTime[up->iLoopbackCount]), NULL ) ;
+				up->bLoopbackMode = TRUE ;
+			} else {
+				/* This else-block is never come. */
+				/* This code avoid wrong report of the coverity static analysis scan tool. */
+				snprintf( sLog, sizeof(sLog)-1, "refclock_jjy.c ; teljjy_conn_send ; iClockCommandSeq=%d iLoopbackCount=%d MAX_LOOPBACK=%d",
+					  up->iClockCommandSeq, up->iLoopbackCount, MAX_LOOPBACK ) ;
+				jjy_write_clockstats( peer, JJY_CLOCKSTATS_MARK_BUG, sLog ) ;
+				msyslog ( LOG_ERR, "%s", sLog ) ;
+				up->bLoopbackMode = FALSE ;
+			}
 		} else {
 			/* Regular command */
 			up->bLoopbackMode = FALSE ;
@@ -3380,7 +3446,7 @@ teljjy_conn_data ( struct peer *peer, struct refclockproc *pp, struct jjyunit *u
 
 	char	*pBuf ;
 	int	iLen, rc ;
-	char	sLog [ 80 ] ;
+	char	sLog [ MAX_LOGTEXT ] ;
 	char	bAdjustment ;
 
 
@@ -3819,7 +3885,7 @@ modem_receive ( struct recvbuf *rbufp )
 	struct	jjyunit		*up;
 	struct	refclockproc	*pp;
 	char	*pBuf ;
-	int	iLen ;
+	size_t	iLen ;
 
 #ifdef DEBUG
 	static const char *sFunctionName = "modem_receive" ;
@@ -3853,11 +3919,11 @@ modem_receive ( struct recvbuf *rbufp )
 #ifdef DEBUG
 	if ( debug ) {
 		char	sResp [ 40 ] ;
-		int	iCopyLen ;
+		size_t	iCopyLen ;
 		iCopyLen = ( iLen <= sizeof(sResp)-1 ? iLen : sizeof(sResp)-1 ) ;
 		strncpy( sResp, pBuf, iLen <= sizeof(sResp)-1 ? iLen : sizeof(sResp)-1 ) ;
 		sResp[iCopyLen] = 0 ;
-		printf ( "refclock_jjy.c : modem_receive : iLen=%d pBuf=[%s] iModemEvent=%d\n", iCopyLen, sResp, up->iModemEvent ) ;
+		printf ( "refclock_jjy.c : modem_receive : iLen=%zu pBuf=[%s] iModemEvent=%d\n", iCopyLen, sResp, up->iModemEvent ) ;
 	}
 #endif
 	modem_control ( peer, pp, up ) ;
@@ -4377,6 +4443,9 @@ jjy_write_clockstats ( struct peer *peer, int iMark, const char *pData )
 		break ;
 	case JJY_CLOCKSTATS_MARK_ERROR :
 		pMark = "-X- " ;
+		break ;
+	case JJY_CLOCKSTATS_MARK_BUG :
+		pMark = "!!! " ;
 		break ;
 	default :
 		pMark = "" ;

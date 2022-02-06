@@ -73,17 +73,26 @@ keyword(
 {
 	size_t i;
 	const char *text;
+	static char sbuf[64];
 
 	i = token - LOWEST_KEYWORD_ID;
 
-	if (i < COUNTOF(keyword_text))
-		text = keyword_text[i];
-	else
-		text = NULL;
+	switch (token) {
+	    case T_ServerresponseFuzz:
+		text = "serverresponse fuzz";
+		break;
 
-	return (text != NULL)
-		   ? text
-		   : "(keyword not found)";
+	    default:
+		if (i < COUNTOF(keyword_text)) {
+			text = keyword_text[i];
+		} else {
+			snprintf(sbuf, sizeof sbuf,
+				"(keyword #%u not found)", token);
+			text = sbuf;
+		}
+	}
+
+	return text;
 }
 
 
@@ -167,6 +176,7 @@ lex_getch(
 		stream->backch = EOF;
 		if (stream->fpi)
 			conf_file_sum += ch;
+		stream->curpos.ncol++;
 	} else if (stream->fpi) {
 		/* fetch next 7-bit ASCII char (or EOF) from file */
 		while ((ch = fgetc(stream->fpi)) != EOF && ch > SCHAR_MAX)
@@ -892,7 +902,6 @@ yylex(void)
 		}
 	}
 
-	instring = FALSE;
 	if (FOLLBY_STRING == followedby)
 		followedby = FOLLBY_TOKEN;
 

@@ -2,11 +2,16 @@ NULL =
 BUILT_SOURCES =
 CLEANFILES =
 
-std_unity_list = 						\
-	$(top_srcdir)/sntp/unity/auto/generate_test_runner.rb	\
+std_unity_list =	 						\
+	$(abs_top_srcdir)/sntp/unity/auto/generate_test_runner.rb	\
+	$(abs_srcdir)/testconf.yml					\
 	$(NULL)
 
-run_unity =	cd $(srcdir) && ruby ../../sntp/unity/auto/generate_test_runner.rb
+run_unity =	ruby $(std_unity_list)
+
+EXTRA_DIST =				\
+	testconf.yml			\
+	$(NULL)
 
 check_PROGRAMS = 	\
 	test-ntpq	\
@@ -28,14 +33,18 @@ unity_tests_LDADD =				\
 	$(NULL)
 
 AM_CFLAGS   = $(CFLAGS_NTP)
+AM_CFLAGS += $(NTP_HARD_CFLAGS)
 
 AM_CPPFLAGS  = $(NTP_INCS)
 AM_CPPFLAGS += -I$(top_srcdir)/ntpq
 AM_CPPFLAGS += $(CPPFLAGS_NTP)
 AM_CPPFLAGS += -DUNITY_INCLUDE_CONFIG_H
 AM_CPPFLAGS += -I$(top_srcdir)/sntp/unity
+AM_CPPFLAGS += $(LIBOPTS_CFLAGS)
+AM_CPPFLAGS += $(NTP_HARD_CPPFLAGS)
 
-AM_LDFLAGS = $(LDFLAGS_NTP)
+AM_LDFLAGS  = $(LDFLAGS_NTP)
+AM_LDFLAGS += $(NTP_HARD_LDFLAGS)
 
 BUILT_SOURCES +=			\
 	$(srcdir)/run-t-ntpq.c		\
@@ -56,7 +65,7 @@ test_ntpq_SOURCES =			\
 	$(NULL)
 
 $(srcdir)/run-t-ntpq.c: $(srcdir)/t-ntpq.c $(std_unity_list)
-	$(run_unity) t-ntpq.c run-t-ntpq.c
+	$(run_unity) $< $@
 
 
 TESTS =

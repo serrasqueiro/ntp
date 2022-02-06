@@ -13,6 +13,8 @@
 #include "ntp_control.h"
 #include "lib_strbuf.h"
 
+#include "ntpq-opts.h"
+
 /*
  * Maximum number of arguments
  */
@@ -62,6 +64,7 @@
 #define NTP_LFP		0x7	/* NTP timestamp */
 #define NTP_MODE	0x8	/* peer mode */
 #define NTP_2BIT	0x9	/* leap bits */
+#define NTP_REFID	0xA	/* RefID */
 
 /*
  * Arguments are returned in a union
@@ -126,6 +129,7 @@ extern chost	chosts[];
 
 extern int	interactive;	/* are we prompting? */
 extern int	old_rv;		/* use old rv behavior? --old-rv */
+extern te_Refid	drefid;		/* How should we display a refid? */
 extern u_int	assoc_cache_slots;/* count of allocated array entries */
 extern u_int	numassoc;	/* number of cached associations */
 extern u_int	numhosts;

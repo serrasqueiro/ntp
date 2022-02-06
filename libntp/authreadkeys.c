@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#include "ntpd.h"	/* Only for DPRINTF */
-#include "ntp_fp.h"
+//#include "ntpd.h"	/* Only for DPRINTF */
+//#include "ntp_fp.h"
 #include "ntp.h"
 #include "ntp_syslog.h"
 #include "ntp_stdlib.h"
@@ -101,10 +101,30 @@ log_maybe(
 	...)
 {
 	va_list ap;
-	if (++(*pnerr) <= nerr_loglimit) {
+	if ((NULL == pnerr) || (++(*pnerr) <= nerr_loglimit)) {
 		va_start(ap, fmt);
 		mvsyslog(LOG_ERR, fmt, ap);
 		va_end(ap);
+	}
+}
+
+static void
+free_keydata(
+	KeyDataT *node
+	)
+{
+	KeyAccT *kap;
+	
+	if (node) {
+		while (node->keyacclist) {
+			kap = node->keyacclist;
+			node->keyacclist = kap->next;
+			free(kap);
+		}
+
+		/* purge secrets from memory before free()ing it */
+		memset(node, 0, sizeof(*node) + node->seclen);
+		free(node);
 	}
 }
 
@@ -128,6 +148,7 @@ authreadkeys(
 	u_int   nerr;
 	KeyDataT *list = NULL;
 	KeyDataT *next = NULL;
+
 	/*
 	 * Open file.  Complain and return if it can't be opened.
 	 */
@@ -156,7 +177,7 @@ authreadkeys(
 		 * First is key number.  See if it is okay.
 		 */
 		keyno = atoi(token);
-		if (keyno == 0) {
+		if (keyno < 1) {
 			log_maybe(&nerr,
 				  "authreadkeys: cannot change key %s",
 				  token);
@@ -180,6 +201,14 @@ authreadkeys(
 				  keyno);
 			continue;
 		}
+
+		/* We want to silently ignore keys where we do not
+		 * support the requested digest type. OTOH, we want to
+		 * make sure the file is well-formed.  That means we
+		 * have to process the line completely and have to
+		 * finally throw away the result... This is a bit more
+		 * work, but it also results in better error detection.
+		 */ 
 #ifdef OPENSSL
 		/*
 		 * The key type is the NID used by the message digest 
@@ -189,30 +218,31 @@ authreadkeys(
 		 */
 		keytype = keytype_from_text(token, NULL);
 		if (keytype == 0) {
-			log_maybe(&nerr,
+			log_maybe(NULL,
 				  "authreadkeys: invalid type for key %d",
 				  keyno);
-			continue;
-		}
-		if (EVP_get_digestbynid(keytype) == NULL) {
-			log_maybe(&nerr,
+#  ifdef ENABLE_CMAC
+		} else if (NID_cmac != keytype &&
+				EVP_get_digestbynid(keytype) == NULL) {
+			log_maybe(NULL,
 				  "authreadkeys: no algorithm for key %d",
 				  keyno);
-			continue;
+			keytype = 0;
+#  endif /* ENABLE_CMAC */
 		}
 #else	/* !OPENSSL follows */
-
 		/*
 		 * The key type is unused, but is required to be 'M' or
 		 * 'm' for compatibility.
 		 */
 		if (!(*token == 'M' || *token == 'm')) {
-			log_maybe(&nerr,
+			log_maybe(NULL,
 				  "authreadkeys: invalid type for key %d",
 				  keyno);
-			continue;
+			keytype = 0;
+		} else {
+			keytype = KEY_TYPE_MD5;
 		}
-		keytype = KEY_TYPE_MD5;
 #endif	/* !OPENSSL */
 
 		/*
@@ -269,32 +299,62 @@ authreadkeys(
 		}
 
 		token = nexttok(&line);
-DPRINTF(0, ("authreadkeys: full access list <%s>\n", (token) ? token : "NULL"));
 		if (token != NULL) {	/* A comma-separated IP access list */
 			char *tp = token;
 
 			while (tp) {
 				char *i;
-				KeyAccT ka;
+				char *snp;	/* subnet text pointer */
+				unsigned int snbits;
+				sockaddr_u addr;
 
 				i = strchr(tp, (int)',');
-				if (i)
+				if (i) {
 					*i = '\0';
-DPRINTF(0, ("authreadkeys: access list:  <%s>\n", tp));
+				}
+				snp = strchr(tp, (int)'/');
+				if (snp) {
+					char *sp;
 
-				if (is_ip_address(tp, AF_UNSPEC, &ka.addr)) {
-					KeyAccT *kap;
+					*snp++ = '\0';
+					snbits = 0;
+					sp = snp;
 
-					kap = emalloc(sizeof(KeyAccT));
-					memcpy(kap, &ka, sizeof ka);
-					kap->next = next->keyacclist;
-					next->keyacclist = kap;
+					while (*sp != '\0') {
+						if (!isdigit((unsigned char)*sp))
+						    break;
+						if (snbits > 1000)
+						    break;	/* overflow */
+						snbits = 10 * snbits + (*sp++ - '0');       /* ascii dependent */
+					}
+					if (*sp != '\0') {
+						log_maybe(&nerr,
+							  "authreadkeys: Invalid character in subnet specification for <%s/%s> in key %d",
+							  sp, snp, keyno);
+						goto nextip;
+					}
+				} else {
+					snbits = UINT_MAX;
+				}
+
+				if (is_ip_address(tp, AF_UNSPEC, &addr)) {
+					/* Make sure that snbits is valid for addr */
+				    if ((snbits < UINT_MAX) &&
+					( (IS_IPV4(&addr) && snbits > 32) ||
+					  (IS_IPV6(&addr) && snbits > 128))) {
+						log_maybe(NULL,
+							  "authreadkeys: excessive subnet mask <%s/%s> for key %d",
+							  tp, snp, keyno);
+				    }
+				    next->keyacclist = keyacc_new_push(
+					next->keyacclist, &addr, snbits);
 				} else {
 					log_maybe(&nerr,
 						  "authreadkeys: invalid IP address <%s> for key %d",
 						  tp, keyno);
 				}
 
+			nextip:
 				if (i) {
 					tp = i + 1;
 				} else {
@@ -303,21 +363,25 @@ DPRINTF(0, ("authreadkeys: access list:  <%s>\n", tp));
 			}
 		}
 
+		/* check if this has to be weeded out... */
+		if (0 == keytype) {
+			free_keydata(next);
+			next = NULL;
+			continue;
+		}
+		
 		INSIST(NULL != next);
 		next->next = list;
 		list = next;
 	}
 	fclose(fp);
-	if (nerr > nerr_maxlimit) {
-		msyslog(LOG_ERR,
-			"authreadkeys: rejecting file '%s' after %u errors (emergency break)",
-			file, nerr);
-		goto onerror;
-	}
 	if (nerr > 0) {
+		const char * why = "";
+		if (nerr > nerr_maxlimit)
+			why = " (emergency break)";
 		msyslog(LOG_ERR,
-			"authreadkeys: rejecting file '%s' after %u error(s)",
-			file, nerr);
+			"authreadkeys: rejecting file '%s' after %u error(s)%s",
+			file, nerr, why);
 		goto onerror;
 	}
 
@@ -328,9 +392,8 @@ DPRINTF(0, ("authreadkeys: access list:  <%s>\n", tp));
 		list = next->next;
 		MD5auth_setkey(next->keyid, next->keytype,
 			       next->secbuf, next->seclen, next->keyacclist);
-		/* purge secrets from memory before free()ing it */
-		memset(next, 0, sizeof(*next) + next->seclen);
-		free(next);
+		next->keyacclist = NULL; /* consumed by MD5auth_setkey */
+		free_keydata(next);
 	}
 	return (1);
 
@@ -338,17 +401,7 @@ DPRINTF(0, ("authreadkeys: access list:  <%s>\n", tp));
 	/* Mop up temporary storage before bailing out. */
 	while (NULL != (next = list)) {
 		list = next->next;
-
-		while (next->keyacclist) {
-			KeyAccT *kap = next->keyacclist;
-
-			next->keyacclist = kap->next;
-			free(kap);
-		}
-
-		/* purge secrets from memory before free()ing it */
-		memset(next, 0, sizeof(*next) + next->seclen);
-		free(next);
+		free_keydata(next);
 	}
 	return (0);
 }

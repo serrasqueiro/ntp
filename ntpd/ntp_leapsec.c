@@ -422,7 +422,8 @@ int/*BOOL*/
 leapsec_load_stream(
 	FILE       * ifp  ,
 	const char * fname,
-	int/*BOOL*/  logall)
+	int/*BOOL*/  logall,
+	int/*BOOL*/  vhash)
 {
 	leap_table_t *pt;
 	int           rcheck;
@@ -430,36 +431,37 @@ leapsec_load_stream(
 	if (NULL == fname)
 		fname = "<unknown>";
 
-	rcheck = leapsec_validate((leapsec_reader)getc, ifp);
-	if (logall)
-		switch (rcheck)
-		{
-		case LSVALID_GOODHASH:
-			msyslog(LOG_NOTICE, "%s ('%s'): good hash signature",
-				logPrefix, fname);
-			break;
-
-		case LSVALID_NOHASH:
-			msyslog(LOG_ERR, "%s ('%s'): no hash signature",
-				logPrefix, fname);
-			break;
-		case LSVALID_BADHASH:
-			msyslog(LOG_ERR, "%s ('%s'): signature mismatch",
-				logPrefix, fname);
-			break;
-		case LSVALID_BADFORMAT:
-			msyslog(LOG_ERR, "%s ('%s'): malformed hash signature",
-				logPrefix, fname);
-			break;
-		default:
-			msyslog(LOG_ERR, "%s ('%s'): unknown error code %d",
-				logPrefix, fname, rcheck);
-			break;
-		}
-	if (rcheck < 0)
-		return FALSE;
-
-	rewind(ifp);
+	if (vhash) {
+		rcheck = leapsec_validate((leapsec_reader)getc, ifp);
+		if (logall)
+			switch (rcheck)
+			{
+			case LSVALID_GOODHASH:
+				msyslog(LOG_NOTICE, "%s ('%s'): good hash signature",
+					logPrefix, fname);
+				break;
+				
+			case LSVALID_NOHASH:
+				msyslog(LOG_ERR, "%s ('%s'): no hash signature",
+					logPrefix, fname);
+				break;
+			case LSVALID_BADHASH:
+				msyslog(LOG_ERR, "%s ('%s'): signature mismatch",
+					logPrefix, fname);
+				break;
+			case LSVALID_BADFORMAT:
+				msyslog(LOG_ERR, "%s ('%s'): malformed hash signature",
+					logPrefix, fname);
+				break;
+			default:
+				msyslog(LOG_ERR, "%s ('%s'): unknown error code %d",
+					logPrefix, fname, rcheck);
+				break;
+			}
+		if (rcheck < 0)
+			return FALSE;
+		rewind(ifp);
+	}
 	pt = leapsec_get_table(TRUE);
 	if (!leapsec_load(pt, (leapsec_reader)getc, ifp, TRUE)) {
 		switch (errno) {
@@ -498,7 +500,8 @@ leapsec_load_file(
 	const char  * fname,
 	struct stat * sb_old,
 	int/*BOOL*/   force,
-	int/*BOOL*/   logall)
+	int/*BOOL*/   logall,
+	int/*BOOL*/   vhash)
 {
 	FILE       * fp;
 	struct stat  sb_new;
@@ -551,7 +554,7 @@ leapsec_load_file(
 		return FALSE;
 	}
 
-	rc = leapsec_load_stream(fp, fname, logall);
+	rc = leapsec_load_stream(fp, fname, logall, vhash);
 	fclose(fp);
 	return rc;
 }
@@ -743,14 +746,24 @@ add_range(
 	const leap_info_t * pi)
 {
 	/* If the table is full, make room by throwing out the oldest
-	 * entry. But remember the accumulated leap seconds! Likewise,
-	 * assume a positive leap insertion if this is the first entry
-	 * in the table. This is not necessarily the best of all ideas,
-	 * but it helps a great deal if a system does not have a leap
-	 * table and gets updated from an upstream server.
+	 * entry. But remember the accumulated leap seconds!
+	 *
+	 * Setting the first entry is a bit tricky, too: Simply assuming
+	 * it is an insertion is wrong if the first entry is a dynamic
+	 * leap second removal. So we decide on the sign -- if the first
+	 * entry has a negative offset, we assume that it is a leap
+	 * second removal. In both cases the table base offset is set
+	 * accordingly to reflect the decision.
+	 *
+	 * In practice starting with a removal can only happen if the
+	 * first entry is a dynamic request without having a leap file
+	 * for the history proper.
 	 */
 	if (pt->head.size == 0) {
-		pt->head.base_tai = pi->taiof - 1;
+		if (pi->taiof >= 0)
+			pt->head.base_tai = pi->taiof - 1;
+		else
+			pt->head.base_tai = pi->taiof + 1;
 	} else if (pt->head.size >= MAX_HIST) {
 		pt->head.size     = MAX_HIST - 1;
 		pt->head.base_tai = pt->info[pt->head.size].taiof;

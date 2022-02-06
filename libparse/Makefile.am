@@ -81,10 +81,14 @@ libparse_kernel_a_LIBADD =	\
 	$(NULL)
 
 AM_CFLAGS = $(CFLAGS_NTP)
+AM_CFLAGS += $(NTP_HARD_CFLAGS)
 
 AM_CPPFLAGS  = $(NTP_INCS)
 AM_CPPFLAGS += -I$(top_srcdir)/kernel
 AM_CPPFLAGS += $(CPPFLAGS_NTP)
+AM_CPPFLAGS += $(NTP_HARD_CPPFLAGS)
+
+AM_LDFLAGS = $(NTP_HARD_LDFLAGS)
 
 EXTRA_DIST = parsesolaris.c parsestreams.c mkinfo_scmd.sed mkinfo_rcmd.sed info_trimble.c
 
@@ -160,9 +164,11 @@ parse: $(parsesolaris_OBJECTS) libparse_kernel.a ../libntp/libntp.a
 
 parsesolaris.o: sys/systm.h
 
+# [Bug3608] Solaris has inconsistent definitions of ffs() and fls(). Drop the
+# ones from 'systm.h'.
 sys/systm.h:
 	-mkdir sys
-	sed -e '/ffs(.*)/d' < /usr/include/sys/systm.h > sys/systm.h
+	sed -e '/f[fl]s(.*)/d' < /usr/include/sys/systm.h > sys/systm.h
 
 ## check-libparse is invoked by ntpd/Makefile.am
 check-libparse: $(noinst_LIBRARIES)

@@ -27,7 +27,7 @@
 #define CHILD_GONE_RESP	CHILD_EXIT_REQ
 /* Queue size increments:
  * The request queue grows a bit faster than the response queue -- the
- * deamon can push requests and pull results faster on avarage than the
+ * daemon can push requests and pull results faster on avarage than the
  * worker can process requests and push results...  If this really pays
  * off is debatable.
  */
@@ -56,6 +56,17 @@
 # define THREAD_MAXSTACKSIZE THREAD_MINSTACKSIZE
 #endif
 
+/* need a good integer to store a pointer... */
+#ifndef UINTPTR_T
+# if defined(UINTPTR_MAX)
+#  define UINTPTR_T uintptr_t
+# elif defined(UINT_PTR)
+#  define UINTPTR_T UINT_PTR
+# else
+#  define UINTPTR_T size_t
+# endif
+#endif
+
 
 #ifdef SYS_WINNT
 
@@ -66,7 +77,7 @@ static BOOL	same_os_sema(const sem_ref obj, void * osobj);
 
 #else
 
-# define thread_exit(c)	pthread_exit((void*)(size_t)(c))
+# define thread_exit(c)	pthread_exit((void*)(UINTPTR_T)(c))
 # define tickle_sem	sem_post
 void *		blocking_thread(void *);
 static	void	block_thread_signals(sigset_t *);
@@ -88,7 +99,27 @@ static	int	ensure_workresp_empty_slot(blocking_child *);
 static	int	queue_req_pointer(blocking_child *, blocking_pipe_header *);
 static	void	cleanup_after_child(blocking_child *);
 
+static sema_type worker_mmutex;
+static sem_ref   worker_memlock;
 
+/* --------------------------------------------------------------------
+ * locking the global worker state table (and other global stuff)
+ */
+void
+worker_global_lock(
+	int inOrOut)
+{
+	if (worker_memlock) {
+		if (inOrOut)
+			wait_for_sem(worker_memlock, NULL);
+		else
+			tickle_sem(worker_memlock);
+	}
+}
+
+/* --------------------------------------------------------------------
+ * implementation isolation wrapper
+ */
 void
 exit_worker(
 	int	exitcode
@@ -354,7 +385,9 @@ send_blocking_resp_internal(
 	if (empty)
 	{
 #	    ifdef WORK_PIPE
-		write(c->resp_write_pipe, "", 1);
+		if (1 != write(c->resp_write_pipe, "", 1))
+			msyslog(LOG_WARNING, "async resolver: %s",
+				"failed to notify main thread!");
 #	    else
 		tickle_sem(c->responses_pending);
 #	    endif
@@ -724,6 +757,9 @@ prepare_child_sems(
 	blocking_child *c
 	)
 {
+	if (NULL == worker_memlock)
+		worker_memlock = create_sema(&worker_mmutex, 1, 1);
+	
 	c->accesslock           = create_sema(&c->sem_table[0], 1, 1);
 	c->workitems_pending    = create_sema(&c->sem_table[1], 0, 0);
 	c->wake_scheduled_sleep = create_sema(&c->sem_table[2], 0, 1);

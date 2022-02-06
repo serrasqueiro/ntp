@@ -41,31 +41,27 @@
 # To see what UpdatePoint will do without modifying packageinfo.sh as it
 # does by default, use the -t/--test option before the repo type:
 #
-# shell# scripts/UpdatePoint -t stable
+# shell# scripts/build/UpdatePoint -t stable
 #
 
 # repotype must be stable or dev
-repotype=dev
+repotype=stable
 
 # post-4.2.8:
-# version=Protocol.Minor (.Point is added later)
+# version=Major.Minor
 # 4.2.8 and before:
 # version=Protocol.Major.Minor
 # odd minor numbers are for -dev, even minor numbers are for -stable
-#
-# ** new format only tracks the major number for output style
-# ** The minor number becomes the "release" number.
-#
 # UpdatePoint will fail if repotype is inconsistent with minor.
 proto=4
-major=4
-minor=3
+major=2
+minor=8
 
 case "${proto}.${major}" in
  4.[012])
     version=${proto}.${major}.${minor}
     ;;
- *) version=${proto}.${minor}
+ *) version=${major}.${minor}
     ;;
 esac
 
@@ -80,21 +76,21 @@ prerelease=
 CLTAG=NTP_4_2_0
 
 ### post-4.2.8:
-### Point number, after "proto.minor.", normally modified by script.
+### Point number, after "major.minor.", normally modified by script.
 ### 4.2.8 and before:
 ### Point number, after "p", normally modified by script.
 # 3 cases:
 # - Numeric values increment
-# - empty 'increments' to 0 for dev, 1 for stable
+# - empty 'increments' to 1
 # - NEW 'increments' to empty
-point=91
+point=15
 
 ### betapoint is normally modified by script.
 # ntp-stable Beta number (betapoint)
 # Should be zeroed at release, and left at zero until first beta.
 # The first beta is -beta1.
 # betapoint is always zero in ntp-dev.
-betapoint=0
+betapoint=
 
 ### rcpoint is normally modified by script except for GO.
 # RC number (rcpoint)
@@ -108,4 +104,4 @@ betapoint=0
 # - - prerelease is emptied
 # else (not in RC)
 # - rcpoint is empty and unused (for now).
-rcpoint=GRONK
+rcpoint=

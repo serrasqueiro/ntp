@@ -176,8 +176,8 @@ static	l_fp delay_time;				/* delay time */
 static	char currenthost[LENHOSTNAME];			/* current host name */
 int showhostnames = 1;					/* show host names by default */
 
-static	int ai_fam_templ;				/* address family */
-static	int ai_fam_default;				/* default address family */
+static	int ai_fam_templ = AF_UNSPEC;		/* address family */
+static	int ai_fam_default = AF_UNSPEC;	/* default address family */
 static	SOCKET sockfd;					/* fd socket is opened on */
 static	int havehost = 0;				/* set to 1 when host open */
 int s_port = 0;
@@ -226,15 +226,27 @@ static	const char *chosts[MAXHOSTS];
 #define	STREQ(a, b)	(*(a) == *(b) && strcmp((a), (b)) == 0)
 
 /*
- * Jump buffer for longjumping back to the command level
+ * Jump buffer for longjumping back to the command level.
+ *
+ * See ntpq/ntpq.c for an explanation why 'sig{set,long}jmp()' is used
+ * when available.
  */
-static	jmp_buf interrupt_buf;
-static  volatile int jump = 0;
+#if HAVE_DECL_SIGSETJMP && HAVE_DECL_SIGLONGJMP
+# define JMP_BUF	sigjmp_buf
+# define SETJMP(x)	sigsetjmp((x), 1)
+# define LONGJMP(x, v)	siglongjmp((x),(v))
+#else
+# define JMP_BUF	jmp_buf
+# define SETJMP(x)	setjmp((x))
+# define LONGJMP(x, v)	longjmp((x),(v))
+#endif
+static	JMP_BUF		interrupt_buf;
+static	volatile int	jump = 0;
 
 /*
  * Pointer to current output unit
  */
-static	FILE *current_output;
+static	FILE *current_output = NULL;
 
 /*
  * Command table imported from ntpdc_ops.c
@@ -275,7 +287,6 @@ ntpdcmain(
 	char *argv[]
 	)
 {
-
 	delay_time.l_ui = 0;
 	delay_time.l_uf = DEFDELAY;
 
@@ -301,11 +312,11 @@ ntpdcmain(
 	}
 
 	if (HAVE_OPT(IPV4))
-		ai_fam_templ = AF_INET;
+		ai_fam_default = AF_INET;
 	else if (HAVE_OPT(IPV6))
-		ai_fam_templ = AF_INET6;
-	else
-		ai_fam_templ = ai_fam_default;
+		ai_fam_default = AF_INET6;
+
+	ai_fam_templ = ai_fam_default;
 
 	if (HAVE_OPT(COMMAND)) {
 		int		cmdct = STACKCT_OPT( COMMAND );
@@ -352,7 +363,7 @@ ntpdcmain(
 
 #ifndef SYS_WINNT /* Under NT cannot handle SIGINT, WIN32 spawns a handler */
 	if (interactive)
-	    (void) signal_no_reset(SIGINT, abortcmd);
+		(void) signal_no_reset(SIGINT, abortcmd);
 #endif /* SYS_WINNT */
 
 	/*
@@ -393,31 +404,28 @@ openhost(
 	)
 {
 	char temphost[LENHOSTNAME];
-	int a_info, i;
+	int a_info;
 	struct addrinfo hints, *ai = NULL;
 	sockaddr_u addr;
 	size_t octets;
-	register const char *cp;
+	const char *cp;
 	char name[LENHOSTNAME];
 	char service[5];
 
 	/*
 	 * We need to get by the [] if they were entered 
 	 */
-	
-	cp = hname;
-	
-	if (*cp == '[') {
-		cp++;	
-		for (i = 0; *cp && *cp != ']'; cp++, i++)
-			name[i] = *cp;
-		if (*cp == ']') {
-			name[i] = '\0';
-			hname = name;
-		} else {
+	if (*hname == '[') {
+		cp = strchr(hname + 1, ']');
+		if (!cp || (octets = (size_t)(cp - hname) - 1) >= sizeof(name)) {
+			errno = EINVAL;
+			warning("%s", "bad hostname/address");
 			return 0;
 		}
-	}	
+		memcpy(name, hname + 1, octets);
+		name[octets] = '\0';
+		hname = name;
+	}
 
 	/*
 	 * First try to resolve it as an ip address and if that fails,
@@ -499,7 +507,7 @@ openhost(
 		int optionValue = SO_SYNCHRONOUS_NONALERT;
 		int err;
 
-		err = setsockopt(INVALID_SOCKET, SOL_SOCKET, SO_OPENTYPE, (char *)&optionValue, sizeof(optionValue));
+		err = setsockopt(INVALID_SOCKET, SOL_SOCKET, SO_OPENTYPE, (void *)&optionValue, sizeof(optionValue));
 		if (err != NO_ERROR) {
 			(void) fprintf(stderr, "cannot open nonoverlapped sockets\n");
 			exit(1);
@@ -519,7 +527,7 @@ openhost(
 		int rbufsize = INITDATASIZE + 2048; /* 2K for slop */
 
 		if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF,
-			       &rbufsize, sizeof(int)) == -1)
+			       (void *)&rbufsize, sizeof(int)) == -1)
 		    error("setsockopt");
 	}
 # endif
@@ -649,7 +657,7 @@ getresponse(
 	todiff = (((uint32_t)time(NULL)) - tobase) & 0x7FFFFFFFu;
 	if ((n > 0) && (todiff > tospan)) {
 		n = recv(sockfd, (char *)&rpkt, sizeof(rpkt), 0);
-		n = 0; /* faked timeout return from 'select()'*/
+		n -= n; /* faked timeout return from 'select()'*/
 	}
 	
 	if (n == 0) {
@@ -669,7 +677,7 @@ getresponse(
 				printf("Received sequence numbers");
 				for (n = 0; n <= MAXSEQ; n++)
 				    if (haveseq[n])
-					printf(" %zd,", n);
+					printf(" %zd,", (size_t)n);
 				if (lastseq != 999)
 				    printf(" last frame received\n");
 				else
@@ -691,7 +699,7 @@ getresponse(
 	 */
 	if (n < (ssize_t)RESP_HEADER_SIZE) {
 		if (debug)
-			printf("Short (%zd byte) packet received\n", n);
+			printf("Short (%zd byte) packet received\n", (size_t)n);
 		goto again;
 	}
 	if (INFO_VERSION(rpkt.rm_vn_mode) > NTP_VERSION ||
@@ -944,7 +952,7 @@ sendrequest(
 	if (!maclen) {  
 		fprintf(stderr, "Key not found\n");
 		return 1;
-	} else if (maclen != (int)(info_auth_hashlen + sizeof(keyid_t))) {
+	} else if (maclen != (size_t)(info_auth_hashlen + sizeof(keyid_t))) {
 		fprintf(stderr,
 			"%zu octet MAC, %zu expected with %zu octet digest\n",
 			maclen, (info_auth_hashlen + sizeof(keyid_t)),
@@ -1118,12 +1126,14 @@ abortcmd(
 	int sig
 	)
 {
-
 	if (current_output == stdout)
-	    (void) fflush(stdout);
+		(void)fflush(stdout);
 	putc('\n', stderr);
-	(void) fflush(stderr);
-	if (jump) longjmp(interrupt_buf, 1);
+	(void)fflush(stderr);
+	if (jump) {
+		jump = 0;
+		LONGJMP(interrupt_buf, 1);
+	}
 }
 #endif /* SYS_WINNT */
 
@@ -1235,14 +1245,22 @@ docmd(
 		current_output = stdout;
 	}
 
-	if (interactive && setjmp(interrupt_buf)) {
-		return;
+	if (interactive) {
+		if ( ! SETJMP(interrupt_buf)) {
+			jump = 1;
+			(xcmd->handler)(&pcmd, current_output);
+			jump = 0;
+		} else {
+			fflush(current_output);
+			fputs("\n >>> command aborted <<<\n", stderr);
+			fflush(stderr);
+		}
 	} else {
-		jump = 1;
-		(xcmd->handler)(&pcmd, current_output);
 		jump = 0;
-		if (current_output != stdout)
-			(void) fclose(current_output);
+		(xcmd->handler)(&pcmd, current_output);
+	}
+	if ((NULL != current_output) && (stdout != current_output)) {
+		(void)fclose(current_output);
 		current_output = NULL;
 	}
 }
@@ -1364,18 +1382,14 @@ getarg(
 	arg_v *argp
 	)
 {
-	int isneg;
-	char *cp, *np;
-	static const char *digits = "0123456789";
-
 	ZERO(*argp);
 	argp->string = str;
 	argp->type   = code & ~OPT;
 
 	switch (argp->type) {
-	    case NTP_STR:
+	case NTP_STR:
 		break;
-	    case NTP_ADD:
+	case NTP_ADD:
 		if (!strcmp("-6", str)) {
 			ai_fam_templ = AF_INET6;
 			return -1;
@@ -1383,41 +1397,25 @@ getarg(
 			ai_fam_templ = AF_INET;
 			return -1;
 		}
-		if (!getnetnum(str, &(argp->netnum), (char *)0, 0)) {
+		if (!getnetnum(str, &(argp->netnum), (char *)0, ai_fam_templ)) {
 			return 0;
 		}
 		break;
-	    case NTP_INT:
-	    case NTP_UINT:
-		isneg = 0;
-		np = str;
-		if (*np == '-') {
-			np++;
-			isneg = 1;
-		}
-
-		argp->uval = 0;
-		do {
-			cp = strchr(digits, *np);
-			if (cp == NULL) {
-				(void) fprintf(stderr,
-					       "***Illegal integer value %s\n", str);
-				return 0;
-			}
-			argp->uval *= 10;
-			argp->uval += (u_long)(cp - digits);
-		} while (*(++np) != '\0');
-
-		if (isneg) {
-			if ((code & ~OPT) == NTP_UINT) {
-				(void) fprintf(stderr,
-					       "***Value %s should be unsigned\n", str);
-				return 0;
-			}
-			argp->ival = -argp->ival;
+	case NTP_UINT:
+		if (!atouint(str, &argp->uval)) {
+			fprintf(stderr, "***Illegal unsigned value %s\n",
+				str);
+			return 0;
 		}
 		break;
-	    case IP_VERSION:
+	case NTP_INT:
+		if (!atoint(str, &argp->ival)) {
+			fprintf(stderr, "***Illegal integer value %s\n",
+				str);
+			return 0;
+		}
+		break;
+	case IP_VERSION:
 		if (!strcmp("-6", str))
 			argp->ival = 6 ;
 		else if (!strcmp("-4", str))
@@ -1449,6 +1447,7 @@ getnetnum(
 	struct addrinfo hints, *ai = NULL;
 
 	ZERO(hints);
+	hints.ai_family = af;
 	hints.ai_flags = AI_CANONNAME;
 #ifdef AI_ADDRCONFIG
 	hints.ai_flags |= AI_ADDRCONFIG;
@@ -1650,7 +1649,7 @@ my_delay(
 	} else {
 		if (pcmd->argval[0].ival < 0) {
 			isneg = 1;
-			val = (u_long)(-pcmd->argval[0].ival);
+			val = ~(u_long)(pcmd->argval[0].ival) + 1UL;
 		} else {
 			isneg = 0;
 			val = (u_long)pcmd->argval[0].ival;

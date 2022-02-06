@@ -84,7 +84,7 @@ static	void	timerstats	(struct parse *, FILE *);
  */
 struct xcmd opcmds[] = {
 	{ "saveconfig", saveconfig, { NTP_STR, NO, NO, NO },
-		{ "filename", "", "", ""}, 
+		{ "filename", "", "", ""},
 		"save ntpd configuration to file, . for current config file"},
 	{ "associations", associations, {  NO, NO, NO, NO },
 	  { "", "", "", "" },
@@ -307,12 +307,12 @@ typedef struct ifstats_row_tag {
 	sockaddr_u	bcast;
 	int		enabled;
 	u_int		flags;
-	int		mcast_count;
+	u_int		mcast_count;
 	char		name[32];
-	int		peer_count;
-	int		received;
-	int		sent;
-	int		send_errors;
+	u_int		peer_count;
+	u_int		received;
+	u_int		sent;
+	u_int		send_errors;
 	u_int		ttl;
 	u_int		uptime;
 } ifstats_row;
@@ -358,6 +358,10 @@ static void	another_ifstats_field(int *, ifstats_row *, FILE *);
 static void	collect_display_vdc(associd_t as, vdc *table,
 				    int decodestatus, FILE *fp);
 
+static	int	xprintf(FILE *,	char const *, ...) NTP_PRINTF(2, 3);
+static	int	xputs(char const *, FILE *);
+static	int	xputc(int, FILE *);
+
 /*
  * static globals
  */
@@ -383,6 +387,43 @@ static const qsort_cmp mru_qcmp_table[MRUSORT_MAX] = {
 };
 
 /*
+ * NULL-pointer safe FILE I/O: use stderr if no file supplied.
+ */
+static	int
+xprintf(
+	FILE *		ofp,
+	char const *	fmt,
+	...
+	)
+{
+	va_list	va;
+	int	rc;
+
+	va_start(va, fmt);
+	rc = vfprintf((ofp ? ofp : stderr), fmt, va);
+	va_end(va);
+	return rc;
+}
+
+static	int
+xputs(
+	char const *	str,
+	FILE *		ofp
+	)
+{
+	return fputs(str, (ofp ? ofp : stderr));
+}
+
+static	int
+xputc(
+	int	ch,
+	FILE *	ofp
+	)
+{
+	return fputc(ch, (ofp ? ofp : stderr));
+}
+
+/*
  * checkassocid - return the association ID, checking to see if it is valid
  */
 static associd_t
@@ -396,7 +437,7 @@ checkassocid(
 	associd = (associd_t)value;
 	if (0 == associd || value != associd) {
 		ulvalue = value;
-		fprintf(stderr,
+		xprintf(stderr,
 			"***Invalid association ID %lu specified\n",
 			ulvalue);
 		return 0;
@@ -446,9 +487,10 @@ doaddvlist(
 
 	len = strlen(vars);
 	while (nextvar(&len, &vars, &name, &value)) {
+		INSIST(name && value);
 		vl = findlistvar(vlist, name);
 		if (NULL == vl) {
-			fprintf(stderr, "Variable list full\n");
+			xprintf(stderr, "Variable list full\n");
 			return;
 		}
 
@@ -481,9 +523,10 @@ dormvlist(
 
 	len = strlen(vars);
 	while (nextvar(&len, &vars, &name, &value)) {
+		INSIST(name && value);
 		vl = findlistvar(vlist, name);
 		if (vl == 0 || vl->name == 0) {
-			(void) fprintf(stderr, "Variable `%s' not found\n",
+			(void) xprintf(stderr, "Variable `%s' not found\n",
 				       name);
 		} else {
 			free((void *)(intptr_t)vl->name);
@@ -547,7 +590,7 @@ makequerydata(
 			valuelen = strlen(vl->value);
 		totallen = namelen + valuelen + (valuelen != 0) + (cp != data);
 		if (cp + totallen > cpend) {
-		    fprintf(stderr, 
+		    xprintf(stderr,
 			    "***Ignoring variables starting with `%s'\n",
 			    vl->name);
 		    break;
@@ -604,14 +647,14 @@ doprintvlist(
 	size_t n;
 
 	if (NULL == vlist->name) {
-		fprintf(fp, "No variables on list\n");
+		xprintf(fp, "No variables on list\n");
 		return;
 	}
 	for (n = 0; n < MAXLIST && vlist[n].name != NULL; n++) {
 		if (NULL == vlist[n].value)
-			fprintf(fp, "%s\n", vlist[n].name);
+			xprintf(fp, "%s\n", vlist[n].name);
 		else
-			fprintf(fp, "%s=%s\n", vlist[n].name,
+			xprintf(fp, "%s=%s\n", vlist[n].name,
 				vlist[n].value);
 	}
 }
@@ -705,13 +748,13 @@ dolist(
 		return 0;
 
 	if (numhosts > 1)
-		fprintf(fp, "server=%s ", currenthost);
+		xprintf(fp, "server=%s ", currenthost);
 	if (dsize == 0) {
 		if (associd == 0)
-			fprintf(fp, "No system%s variables returned\n",
+			xprintf(fp, "No system%s variables returned\n",
 				(type == TYPE_CLOCK) ? " clock" : "");
 		else
-			fprintf(fp,
+			xprintf(fp,
 				"No information returned for%s association %u\n",
 				(type == TYPE_CLOCK) ? " clock" : "",
 				associd);
@@ -719,7 +762,7 @@ dolist(
 	}
 
 	if (!quiet)
-		fprintf(fp, "associd=%u ", associd);
+		xprintf(fp, "associd=%u ", associd);
 	printvars(dsize, datap, (int)rstatus, type, quiet, fp);
 	return 1;
 }
@@ -786,11 +829,11 @@ writelist(
 		return;
 
 	if (numhosts > 1)
-		(void) fprintf(fp, "server=%s ", currenthost);
+		(void) xprintf(fp, "server=%s ", currenthost);
 	if (dsize == 0)
-		(void) fprintf(fp, "done! (no data returned)\n");
+		(void) xprintf(fp, "done! (no data returned)\n");
 	else {
-		(void) fprintf(fp,"associd=%u ", associd);
+		(void) xprintf(fp,"associd=%u ", associd);
 		printvars(dsize, datap, (int)rstatus,
 			  (associd != 0) ? TYPE_PEER : TYPE_SYS, 0, fp);
 	}
@@ -871,11 +914,11 @@ writevar(
 		return;
 
 	if (numhosts > 1)
-		fprintf(fp, "server=%s ", currenthost);
+		xprintf(fp, "server=%s ", currenthost);
 	if (dsize == 0)
-		fprintf(fp, "done! (no data returned)\n");
+		xprintf(fp, "done! (no data returned)\n");
 	else {
-		fprintf(fp,"associd=%u ", associd);
+		xprintf(fp,"associd=%u ", associd);
 		type = (0 == associd)
 			   ? TYPE_SYS
 			   : TYPE_PEER;
@@ -974,7 +1017,7 @@ findassidrange(
 	}
 	for (a = 0; a < COUNTOF(assids); a++)
 		if (-1 == ind[a]) {
-			fprintf(stderr,
+			xprintf(stderr,
 				"***Association ID %u not found in list\n",
 				assids[a]);
 			return 0;
@@ -1011,7 +1054,7 @@ mreadlist(
 
 	for (i = from; i <= to; i++) {
 		if (i != from)
-			fprintf(fp, "\n");
+			xprintf(fp, "\n");
 		if (!dolist(g_varlist, assoc_cache[i].assid,
 			    CTL_OP_READVAR, TYPE_PEER, fp))
 			return;
@@ -1082,15 +1125,15 @@ dogetassoc(
 
 	if (dsize == 0) {
 		if (numhosts > 1)
-			fprintf(fp, "server=%s ", currenthost);
-		fprintf(fp, "No association ID's returned\n");
+			xprintf(fp, "server=%s ", currenthost);
+		xprintf(fp, "No association ID's returned\n");
 		return 0;
 	}
 
 	if (dsize & 0x3) {
 		if (numhosts > 1)
-			fprintf(stderr, "server=%s ", currenthost);
-		fprintf(stderr,
+			xprintf(stderr, "server=%s ", currenthost);
+		xprintf(stderr,
 			"***Server returned %zu octets, should be multiple of 4\n",
 			dsize);
 		return 0;
@@ -1110,13 +1153,13 @@ dogetassoc(
 		datap += sizeof(*pus);
 		dsize -= 2 * sizeof(*pus);
 		if (debug) {
-			fprintf(stderr, "[%u] ",
+			xprintf(stderr, "[%u] ",
 				assoc_cache[numassoc].assid);
 		}
 		numassoc++;
 	}
 	if (debug) {
-		fprintf(stderr, "\n%d associations total\n", numassoc);
+		xprintf(stderr, "\n%d associations total\n", numassoc);
 	}
 	sortassoc();
 	return 1;
@@ -1145,16 +1188,16 @@ printassoc(
 	char buf[128];
 
 	if (numassoc == 0) {
-		(void) fprintf(fp, "No association ID's in list\n");
+		(void) xprintf(fp, "No association ID's in list\n");
 		return;
 	}
 
 	/*
 	 * Output a header
 	 */
-	(void) fprintf(fp,
-			   "\nind assid status  conf reach auth condition  last_event cnt\n");
-	(void) fprintf(fp,
+	(void) xprintf(fp,
+			   "ind assid status  conf reach auth condition  last_event cnt\n");
+	(void) xprintf(fp,
 			   "===========================================================\n");
 	for (i = 0; i < numassoc; i++) {
 		statval = (u_char) CTL_PEER_STATVAL(assoc_cache[i].status);
@@ -1305,7 +1348,7 @@ printassoc(
 		while (bp > buf && ' ' == bp[-1])
 			--bp;
 		bp[0] = '\0';
-		fprintf(fp, "%s\n", buf);
+		xprintf(fp, "%s\n", buf);
 	}
 }
 
@@ -1384,7 +1427,7 @@ saveconfig(
 
 	if (0 == pcmd->nargs)
 		return;
-	
+
 	res = doquery(CTL_OP_SAVECONFIG, 0, 1,
 		      strlen(pcmd->argval[0].string),
 		      pcmd->argval[0].string, &rstatus, &dsize,
@@ -1394,9 +1437,9 @@ saveconfig(
 		return;
 
 	if (0 == dsize)
-		fprintf(fp, "(no response message, curiously)");
+		xprintf(fp, "(no response message, curiously)");
 	else
-		fprintf(fp, "%.*s", (int)dsize, datap); /* cast is wobbly */
+		xprintf(fp, "%.*s", (int)dsize, datap); /* cast is wobbly */
 }
 
 
@@ -1423,9 +1466,9 @@ radiostatus(
 		return;
 
 	if (numhosts > 1)
-		(void) fprintf(fp, "server=%s ", currenthost);
+		(void) xprintf(fp, "server=%s ", currenthost);
 	if (dsize == 0) {
-		(void) fprintf(fp, "No radio status string returned\n");
+		(void) xprintf(fp, "No radio status string returned\n");
 		return;
 	}
 
@@ -1452,6 +1495,8 @@ when(
 	else
 		return 0;
 
+	if (ts->l_ui < lasttime->l_ui)
+		return -1;
 	return (ts->l_ui - lasttime->l_ui);
 }
 
@@ -1473,24 +1518,36 @@ prettyinterval(
 	}
 
 	if (diff <= 2048) {
-		snprintf(buf, cb, "%ld", diff);
+		snprintf(buf, cb, "%u", (unsigned int)diff);
 		return buf;
 	}
 
 	diff = (diff + 29) / 60;
 	if (diff <= 300) {
-		snprintf(buf, cb, "%ldm", diff);
+		snprintf(buf, cb, "%um", (unsigned int)diff);
 		return buf;
 	}
 
 	diff = (diff + 29) / 60;
 	if (diff <= 96) {
-		snprintf(buf, cb, "%ldh", diff);
+		snprintf(buf, cb, "%uh", (unsigned int)diff);
 		return buf;
 	}
 
 	diff = (diff + 11) / 24;
-	snprintf(buf, cb, "%ldd", diff);
+	if (diff <= 999) {
+		snprintf(buf, cb, "%ud", (unsigned int)diff);
+		return buf;
+	}
+
+	/* years are only approximated... */
+	diff = (long)floor(diff / 365.25 + 0.5);
+	if (diff <= 999) {
+		snprintf(buf, cb, "%uy", (unsigned int)diff);
+		return buf;
+	}
+	/* Ok, this amounts to infinity... */
+	strlcpy(buf, "INF", cb);
 	return buf;
 }
 
@@ -1629,12 +1686,16 @@ doprintpeers(
 	l_fp rec;
 	l_fp ts;
 	u_long poll_sec;
+	u_long flash = 0;
 	char type = '?';
-	char whenbuf[8], pollbuf[8];
 	char clock_name[LENHOSTNAME];
-
+	char whenbuf[12], pollbuf[12];
+	/* [Bug 3482] formally whenbuf & pollbuf should be able to hold
+	 * a full signed int. Not that we would use that much string
+	 * data for it...
+	 */
 	get_systime(&ts);
-	
+
 	have_srchost = FALSE;
 	have_dstadr = FALSE;
 	have_da_rid = FALSE;
@@ -1648,10 +1709,11 @@ doprintpeers(
 	ZERO(estdisp);
 
 	while (nextvar(&datalen, &data, &name, &value)) {
+		INSIST(name && value);
 		if (!strcmp("srcadr", name) ||
 		    !strcmp("peeradr", name)) {
 			if (!decodenetnum(value, &srcadr))
-				fprintf(stderr, "malformed %s=%s\n",
+				xprintf(stderr, "malformed %s=%s\n",
 					name, value);
 		} else if (!strcmp("srchost", name)) {
 			if (pvl == peervarlist || pvl == apeervarlist) {
@@ -1679,7 +1741,8 @@ doprintpeers(
 		} else if (!strcmp("hmode", name)) {
 			decodeint(value, &hmode);
 		} else if (!strcmp("refid", name)) {
-			if (pvl == peervarlist) {
+			if (   (pvl == peervarlist)
+			    && (drefid == REFID_IPV4)) {
 				have_da_rid = TRUE;
 				drlen = strlen(value);
 				if (0 == drlen) {
@@ -1700,7 +1763,9 @@ doprintpeers(
 				} else {
 					have_da_rid = FALSE;
 				}
-			} else if (pvl == apeervarlist) {
+			} else if (   (pvl == apeervarlist)
+				   || (pvl == peervarlist)) {
+				/* no need to check drefid == REFID_HASH */
 				have_da_rid = TRUE;
 				drlen = strlen(value);
 				if (0 == drlen) {
@@ -1709,7 +1774,7 @@ doprintpeers(
 					ZERO(u32);
 					memcpy(&u32, value, drlen);
 					dstadr_refid = refid_str(u32, 1);
-					//fprintf(stderr, "apeervarlist S1 refid: value=<%s>\n", value);
+					//xprintf(stderr, "apeervarlist S1 refid: value=<%s>\n", value);
 				} else if (decodenetnum(value, &refidadr)) {
 					if (SOCK_UNSPEC(&refidadr))
 						dstadr_refid = "0.0.0.0";
@@ -1723,9 +1788,9 @@ doprintpeers(
 						snprintf(buf, 10,
 							"%0x", i);
 						dstadr_refid = buf;
-					//fprintf(stderr, "apeervarlist refid: value=<%x>\n", i);
+					//xprintf(stderr, "apeervarlist refid: value=<%x>\n", i);
 					}
-					//fprintf(stderr, "apeervarlist refid: value=<%s>\n", value);
+					//xprintf(stderr, "apeervarlist refid: value=<%s>\n", value);
 				} else {
 					have_da_rid = FALSE;
 				}
@@ -1759,8 +1824,10 @@ doprintpeers(
 		} else if (!strcmp("reftime", name)) {
 			if (!decodets(value, &reftime))
 				L_CLR(&reftime);
+		} else if (!strcmp("flash", name)) {
+		    decodeuint(value, &flash);
 		} else {
-			// fprintf(stderr, "UNRECOGNIZED name=%s ", name);
+			// xprintf(stderr, "UNRECOGNIZED name=%s ", name);
 		}
 	}
 
@@ -1824,17 +1891,23 @@ doprintpeers(
 			else
 				serverlocal = currenthost;
 		}
-		fprintf(fp, "%-*s ", (int)maxhostlen, serverlocal);
+		xprintf(fp, "%-*s ", (int)maxhostlen, serverlocal);
 	}
 	if (AF_UNSPEC == af || AF(&srcadr) == af) {
 		if (!have_srchost)
 			strlcpy(clock_name, nntohost(&srcadr),
 				sizeof(clock_name));
+		/* wide and long source - space over on next line */
+		/* allow for host + sp if > 1 and regular tally + source + sp */
 		if (wideremote && 15 < strlen(clock_name))
-			fprintf(fp, "%c%s\n                 ", c, clock_name);
+			xprintf(fp, "%c%s\n%*s", c, clock_name,
+				((numhosts > 1) ? (int)maxhostlen + 1 : 0)
+							+ 1 + 15 + 1, "");
 		else
-			fprintf(fp, "%c%-15.15s ", c, clock_name);
-		if (!have_da_rid) {
+			xprintf(fp, "%c%-15.15s ", c, clock_name);
+		if ((flash & TEST12) && (pvl != opeervarlist)) {
+			drlen = xprintf(fp, "(loop)");
+		} else if (!have_da_rid) {
 			drlen = 0;
 		} else {
 			drlen = strlen(dstadr_refid);
@@ -1842,24 +1915,24 @@ doprintpeers(
 		}
 		if (pvl == apeervarlist) {
 			while (drlen++ < 9)
-				fputc(' ', fp);
-			fprintf(fp, "%-6d", associd);
+				xputc(' ', fp);
+			xprintf(fp, "%-6d", associd);
 		} else {
 			while (drlen++ < 15)
-				fputc(' ', fp);
+				xputc(' ', fp);
 		}
-		fprintf(fp,
+		xprintf(fp,
 			" %2ld %c %4.4s %4.4s  %3lo  %7.7s %8.7s %7.7s\n",
 			stratum, type,
 			prettyinterval(whenbuf, sizeof(whenbuf),
 				       when(&ts, &rec, &reftime)),
-			prettyinterval(pollbuf, sizeof(pollbuf), 
+			prettyinterval(pollbuf, sizeof(pollbuf),
 				       (int)poll_sec),
-			reach, lfptoms(&estdelay, 3),
+			reach, ulfptoms(&estdelay, 3),
 			lfptoms(&estoffset, 3),
 			(have_jitter)
-			    ? lfptoms(&estjitter, 3)
-			    : lfptoms(&estdisp, 3));
+			    ? ulfptoms(&estjitter, 3)
+			    : ulfptoms(&estdisp, 3));
 		return (1);
 	}
 	else
@@ -1900,8 +1973,8 @@ dogetpeers(
 
 	if (dsize == 0) {
 		if (numhosts > 1)
-			fprintf(stderr, "server=%s ", currenthost);
-		fprintf(stderr,
+			xprintf(stderr, "server=%s ", currenthost);
+		xprintf(stderr,
 			"***No information returned for association %u\n",
 			associd);
 		return 0;
@@ -1939,14 +2012,14 @@ dopeers(
 		}
 	}
 	if (numhosts > 1)
-		fprintf(fp, "%-*.*s ", (int)maxhostlen, (int)maxhostlen,
+		xprintf(fp, "%-*.*s ", (int)maxhostlen, (int)maxhostlen,
 			"server (local)");
-	fprintf(fp,
+	xprintf(fp,
 		"     remote           refid      st t when poll reach   delay   offset  jitter\n");
 	if (numhosts > 1)
 		for (u = 0; u <= maxhostlen; u++)
-			fprintf(fp, "=");
-	fprintf(fp,
+			xprintf(fp, "=");
+	xprintf(fp,
 		"==============================================================================\n");
 
 	for (u = 0; u < numassoc; u++) {
@@ -1954,7 +2027,7 @@ dopeers(
 		    !(CTL_PEER_STATVAL(assoc_cache[u].status)
 		      & (CTL_PST_CONFIG|CTL_PST_REACH))) {
 			if (debug)
-				fprintf(stderr, "eliding [%d]\n",
+				xprintf(stderr, "eliding [%d]\n",
 					(int)assoc_cache[u].assid);
 			continue;
 		}
@@ -1993,14 +2066,14 @@ doapeers(
 		}
 	}
 	if (numhosts > 1)
-		fprintf(fp, "%-*.*s ", (int)maxhostlen, (int)maxhostlen,
+		xprintf(fp, "%-*.*s ", (int)maxhostlen, (int)maxhostlen,
 			"server (local)");
-	fprintf(fp,
+	xprintf(fp,
 		"     remote       refid   assid  st t when poll reach   delay   offset  jitter\n");
 	if (numhosts > 1)
 		for (u = 0; u <= maxhostlen; u++)
-			fprintf(fp, "=");
-	fprintf(fp,
+			xprintf(fp, "=");
+	xprintf(fp,
 		"==============================================================================\n");
 
 	for (u = 0; u < numassoc; u++) {
@@ -2008,7 +2081,7 @@ doapeers(
 		    !(CTL_PEER_STATVAL(assoc_cache[u].status)
 		      & (CTL_PST_CONFIG|CTL_PST_REACH))) {
 			if (debug)
-				fprintf(stderr, "eliding [%d]\n",
+				xprintf(stderr, "eliding [%d]\n",
 					(int)assoc_cache[u].assid);
 			continue;
 		}
@@ -2030,15 +2103,19 @@ peers(
 	FILE *fp
 	)
 {
-	int af = 0;
+	if (drefid == REFID_HASH) {
+		apeers(pcmd, fp);
+	} else {
+		int af = 0;
 
-	if (pcmd->nargs == 1) {
-		if (pcmd->argval->ival == 6)
-			af = AF_INET6;
-		else
-			af = AF_INET;
+		if (pcmd->nargs == 1) {
+			if (pcmd->argval->ival == 6)
+				af = AF_INET6;
+			else
+				af = AF_INET;
+		}
+		dopeers(0, fp, af);
 	}
-	dopeers(0, fp, af);
 }
 
 
@@ -2109,14 +2186,14 @@ doopeers(
 				maxhostlen = strlen(fullname);
 	}
 	if (numhosts > 1)
-		fprintf(fp, "%-*.*s ", (int)maxhostlen, (int)maxhostlen,
+		xprintf(fp, "%-*.*s ", (int)maxhostlen, (int)maxhostlen,
 			"server");
-	fprintf(fp,
+	xprintf(fp,
 	    "     remote           local      st t when poll reach   delay   offset    disp\n");
 	if (numhosts > 1)
 		for (i = 0; i <= maxhostlen; ++i)
-			fprintf(fp, "=");
-	fprintf(fp,
+			xprintf(fp, "=");
+	xprintf(fp,
 	    "==============================================================================\n");
 
 	for (i = 0; i < numassoc; i++) {
@@ -2175,10 +2252,10 @@ lopeers(
 }
 
 
-/* 
+/*
  * config - send a configuration command to a remote host
  */
-static void 
+static void
 config (
 	struct parse *pcmd,
 	FILE *fp
@@ -2196,7 +2273,7 @@ config (
 	cfgcmd = pcmd->argval[0].string;
 
 	if (debug > 2)
-		fprintf(stderr, 
+		xprintf(stderr,
 			"In Config\n"
 			"Keyword = %s\n"
 			"Command = %s\n", pcmd->keyword, cfgcmd);
@@ -2218,34 +2295,37 @@ config (
 	col = -1;
 	if (1 == sscanf(resp, "column %d syntax error", &col)
 	    && col >= 0 && (size_t)col <= strlen(cfgcmd) + 1) {
-		if (interactive) {
-			printf("______");	/* "ntpq> " */
-			printf("________");	/* ":config " */
-		} else
+		if (interactive)
+			xputs("             *", stdout); /* "ntpq> :config " */
+		else
 			printf("%s\n", cfgcmd);
-		for (i = 1; i < col; i++)
-			putchar('_');
-		printf("^\n");
+		for (i = 0; i < col; i++)
+			xputc('_', stdout);
+		xputs("^\n", stdout);
 	}
 	printf("%s\n", resp);
 	free(resp);
 }
 
 
-/* 
+/*
  * config_from_file - remotely configure an ntpd daemon using the
  * specified configuration file
  * SK: This function is a kludge at best and is full of bad design
  * bugs:
  * 1. ntpq uses UDP, which means that there is no guarantee of in-order,
- *    error-free delivery. 
+ *    error-free delivery.
  * 2. The maximum length of a packet is constrained, and as a result, the
- *    maximum length of a line in a configuration file is constrained. 
+ *    maximum length of a line in a configuration file is constrained.
  *    Longer lines will lead to unpredictable results.
  * 3. Since this function is sending a line at a time, we can't update
  *    the control key through the configuration file (YUCK!!)
+ *
+ * Pearly: There are a few places where 'size_t' is cast to 'int' based
+ * on the assumption that 'int' can hold the size of the involved
+ * buffers without overflow.
  */
-static void 
+static void
 config_from_file (
 	struct parse *pcmd,
 	FILE *fp
@@ -2254,6 +2334,7 @@ config_from_file (
 	u_short rstatus;
 	size_t rsize;
 	const char *rdata;
+	char * cp;
 	int res;
 	FILE *config_fd;
 	char config_cmd[MAXLINE];
@@ -2262,7 +2343,7 @@ config_from_file (
 	int retry_limit;
 
 	if (debug > 2)
-		fprintf(stderr,
+		xprintf(stderr,
 			"In Config\n"
 			"Keyword = %s\n"
 			"Filename = %s\n", pcmd->keyword,
@@ -2278,33 +2359,47 @@ config_from_file (
 	printf("Sending configuration file, one line at a time.\n");
 	i = 0;
 	while (fgets(config_cmd, MAXLINE, config_fd) != NULL) {
-		config_len = strlen(config_cmd);
-		/* ensure even the last line has newline, if possible */
-		if (config_len > 0 && 
-		    config_len + 2 < sizeof(config_cmd) &&
-		    '\n' != config_cmd[config_len - 1])
-			config_cmd[config_len++] = '\n';
+		/* Eliminate comments first. */
+		cp = strchr(config_cmd, '#');
+		config_len = (NULL != cp)
+		    ? (size_t)(cp - config_cmd)
+		    : strlen(config_cmd);
+
+		/* [Bug 3015] make sure there's no trailing whitespace;
+		 * the fix for [Bug 2853] on the server side forbids
+		 * those. And don't transmit empty lines, as this would
+		 * just be waste.
+		 */
+		while (config_len != 0 &&
+		       (u_char)config_cmd[config_len-1] <= ' ')
+			--config_len;
+		config_cmd[config_len] = '\0';
+
 		++i;
+		if (0 == config_len)
+			continue;
+
 		retry_limit = 2;
-		do 
+		do
 			res = doquery(CTL_OP_CONFIGURE, 0, 1,
-				      strlen(config_cmd), config_cmd,
+				      config_len, config_cmd,
 				      &rstatus, &rsize, &rdata);
 		while (res != 0 && retry_limit--);
 		if (res != 0) {
-			printf("Line No: %d query failed: %s", i,
-			       config_cmd);
-			printf("Subsequent lines not sent.\n");
+			printf("Line No: %d query failed: %.*s\n"
+			       "Subsequent lines not sent.\n",
+			       i, (int)config_len, config_cmd);
 			fclose(config_fd);
 			return;
 		}
 
-		if (rsize > 0 && '\n' == rdata[rsize - 1])
-			rsize--;
-		if (rsize > 0 && '\r' == rdata[rsize - 1])
-			rsize--;
-		printf("Line No: %d %.*s: %s", i, (int)rsize, rdata, /* cast is wobbly */
-		       config_cmd);
+		/* Right-strip the result code string, then output the
+		 * last line executed, with result code. */
+		while (rsize != 0 && (u_char)rdata[rsize - 1] <= ' ')
+			--rsize;
+		printf("Line No: %d %.*s: %.*s\n", i,
+		       (int)rsize, rdata,
+		       (int)config_len, config_cmd);
 	}
 	printf("Done sending file\n");
 	fclose(config_fd);
@@ -2332,18 +2427,18 @@ fetch_nonce(
 	qres = doquery(CTL_OP_REQ_NONCE, 0, 0, 0, NULL, &rstatus,
 		       &rsize, &rdata);
 	if (qres) {
-		fprintf(stderr, "nonce request failed\n");
+		xprintf(stderr, "nonce request failed\n");
 		return FALSE;
 	}
 
 	if ((size_t)rsize <= sizeof(nonce_eq) - 1 ||
 	    strncmp(rdata, nonce_eq, sizeof(nonce_eq) - 1)) {
-		fprintf(stderr, "unexpected nonce response format: %.*s\n",
+		xprintf(stderr, "unexpected nonce response format: %.*s\n",
 			(int)rsize, rdata); /* cast is wobbly */
 		return FALSE;
 	}
 	chars = rsize - (sizeof(nonce_eq) - 1);
-	if (chars >= (int)cb_nonce)
+	if (chars >= cb_nonce)
 		return FALSE;
 	memcpy(nonce, rdata + sizeof(nonce_eq) - 1, chars);
 	nonce[chars] = '\0';
@@ -2352,7 +2447,7 @@ fetch_nonce(
 		chars--;
 		nonce[chars] = '\0';
 	}
-	
+
 	return TRUE;
 }
 
@@ -2379,7 +2474,7 @@ add_mru(
 			break;
 	if (mon != NULL) {
 		if (!L_ISGEQ(&add->first, &mon->first)) {
-			fprintf(stderr,
+			xprintf(stderr,
 				"add_mru duplicate %s new first ts %08x.%08x precedes prior %08x.%08x\n",
 				sptoa(&add->addr), add->last.l_ui,
 				add->last.l_uf, mon->last.l_ui,
@@ -2469,7 +2564,7 @@ collect_mru_list(
 	l_fp last_older;
 	sockaddr_u addr_older;
 	int have_now;
-	int have_addr_older; 
+	int have_addr_older;
 	int have_last_older;
 	u_int restarted_count;
 	u_int nonce_uses;
@@ -2507,7 +2602,7 @@ collect_mru_list(
 
 	while (TRUE) {
 		if (debug)
-			fprintf(stderr, "READ_MRU parms: %s\n", req_buf);
+			xprintf(stderr, "READ_MRU parms: %s\n", req_buf);
 
 		qres = doqueryex(CTL_OP_READ_MRU, 0, 0,
 				 strlen(req_buf), req_buf,
@@ -2519,14 +2614,14 @@ collect_mru_list(
 			 * toss them from our list and try again.
 			 */
 			if (debug)
-				fprintf(stderr,
+				xprintf(stderr,
 					"no overlap between %d prior entries and server MRU list\n",
 					ri);
 			while (ri--) {
 				recent = HEAD_DLIST(mru_list, mlink);
 				INSIST(recent != NULL);
 				if (debug)
-					fprintf(stderr,
+					xprintf(stderr,
 						"tossing prior entry %s to resync\n",
 						sptoa(&recent->addr));
 				UNLINK_DLIST(recent, mlink);
@@ -2540,7 +2635,7 @@ collect_mru_list(
 			if (NULL == HEAD_DLIST(mru_list, mlink)) {
 				restarted_count++;
 				if (restarted_count > 8) {
-					fprintf(stderr,
+					xprintf(stderr,
 						"Giving up after 8 restarts from the beginning.\n"
 						"With high-traffic NTP servers, this can occur if the\n"
 						"MRU list is limited to less than about 16 seconds' of\n"
@@ -2548,26 +2643,26 @@ collect_mru_list(
 					goto cleanup_return;
 				}
 				if (debug)
-					fprintf(stderr,
-						"--->   Restarting from the beginning, retry #%u\n", 
+					xprintf(stderr,
+						"--->   Restarting from the beginning, retry #%u\n",
 						restarted_count);
 			}
 		} else if (CERR_UNKNOWNVAR == qres) {
-			fprintf(stderr,
+			xprintf(stderr,
 				"CERR_UNKNOWNVAR from ntpd but no priors given.\n");
 			goto cleanup_return;
 		} else if (CERR_BADVALUE == qres) {
 			if (cap_frags) {
 				cap_frags = FALSE;
 				if (debug)
-					fprintf(stderr,
+					xprintf(stderr,
 						"Reverted to row limit from fragments limit.\n");
 			} else {
 				/* ntpd has lower cap on row limit */
 				ntpd_row_limit--;
 				limit = min(limit, ntpd_row_limit);
 				if (debug)
-					fprintf(stderr,
+					xprintf(stderr,
 						"Row limit reduced to %d following CERR_BADVALUE.\n",
 						limit);
 			}
@@ -2580,13 +2675,13 @@ collect_mru_list(
 			if (cap_frags) {
 				frags = max(2, frags / 2);
 				if (debug)
-					fprintf(stderr,
+					xprintf(stderr,
 						"Frag limit reduced to %d following incomplete response.\n",
 						frags);
 			} else {
 				limit = max(2, limit / 2);
 				if (debug)
-					fprintf(stderr,
+					xprintf(stderr,
 						"Row limit reduced to %d following incomplete response.\n",
 						limit);
 			}
@@ -2600,7 +2695,7 @@ collect_mru_list(
 		 * dump similar output after the list is collected by
 		 * ntpq with a continuous sequence of indexes.  This
 		 * cheap approach has indexes resetting to zero for
-		 * each query/response, and duplicates are not 
+		 * each query/response, and duplicates are not
 		 * coalesced.
 		 */
 		if (!qres && rawmode)
@@ -2609,21 +2704,22 @@ collect_mru_list(
 		have_addr_older = FALSE;
 		have_last_older = FALSE;
 		while (!qres && nextvar(&rsize, &rdata, &tag, &val)) {
+			INSIST(tag && val);
 			if (debug > 1)
-				fprintf(stderr, "nextvar gave: %s = %s\n",
+				xprintf(stderr, "nextvar gave: %s = %s\n",
 					tag, val);
 			switch(tag[0]) {
 
 			case 'a':
 				if (!strcmp(tag, "addr.older")) {
 					if (!have_last_older) {
-						fprintf(stderr,
+						xprintf(stderr,
 							"addr.older %s before last.older\n",
 							val);
 						goto cleanup_return;
 					}
 					if (!decodenetnum(val, &addr_older)) {
-						fprintf(stderr,
+						xprintf(stderr,
 							"addr.older %s garbled\n",
 							val);
 						goto cleanup_return;
@@ -2637,14 +2733,14 @@ collect_mru_list(
 						      &recent->addr))
 							break;
 					if (NULL == recent) {
-						fprintf(stderr,
+						xprintf(stderr,
 							"addr.older %s not in hash table\n",
 							val);
 						goto cleanup_return;
 					}
 					if (!L_ISEQU(&last_older,
 						     &recent->last)) {
-						fprintf(stderr,
+						xprintf(stderr,
 							"last.older %08x.%08x mismatches %08x.%08x expected.\n",
 							last_older.l_ui,
 							last_older.l_uf,
@@ -2665,7 +2761,7 @@ collect_mru_list(
 					if ('0' != val[0] ||
 					    'x' != val[1] ||
 					    !hextolfp(val + 2, &last_older)) {
-						fprintf(stderr,
+						xprintf(stderr,
 							"last.older %s garbled\n",
 							val);
 						goto cleanup_return;
@@ -2673,13 +2769,13 @@ collect_mru_list(
 					have_last_older = TRUE;
 				} else if (!strcmp(tag, "last.newest")) {
 					if (0 != got) {
-						fprintf(stderr,
+						xprintf(stderr,
 							"last.newest %s before complete row, got = 0x%x\n",
 							val, (u_int)got);
 						goto cleanup_return;
 					}
 					if (!have_now) {
-						fprintf(stderr,
+						xprintf(stderr,
 							"last.newest %s before now=\n",
 							val);
 						goto cleanup_return;
@@ -2691,7 +2787,7 @@ collect_mru_list(
 						    !hextolfp(val + 2, &newest) ||
 						    !L_ISEQU(&newest,
 							     &head->last)) {
-							fprintf(stderr,
+							xprintf(stderr,
 								"last.newest %s mismatches %08x.%08x",
 								val,
 								head->last.l_ui,
@@ -2767,7 +2863,7 @@ collect_mru_list(
 				break;
 
 			default:
-			nomatch:	
+			nomatch:
 				/* empty stmt */ ;
 				/* ignore unknown tags */
 			}
@@ -2783,7 +2879,7 @@ collect_mru_list(
 			fflush(stdout);
 		}
 		if (list_complete || mrulist_interrupted) {
-			fprintf(stderr,
+			xprintf(stderr,
 				"\rRetrieved %u unique MRU entries and %u updates.\n",
 				mru_count, mru_dupes);
 			fflush(stderr);
@@ -2791,7 +2887,7 @@ collect_mru_list(
 		}
 		if (time(NULL) >= next_report) {
 			next_report += MRU_REPORT_SECS;
-			fprintf(stderr, "\r%u (%u updates) ", mru_count,
+			xprintf(stderr, "\r%u (%u updates) ", mru_count,
 				mru_dupes);
 			fflush(stderr);
 		}
@@ -2815,7 +2911,7 @@ collect_mru_list(
 		 * If there were no errors, increase the number of rows
 		 * to a maximum of 3 * MAXFRAGS (the most packets ntpq
 		 * can handle in one response), on the assumption that
-		 * no less than 3 rows fit in each packet, capped at 
+		 * no less than 3 rows fit in each packet, capped at
 		 * our best guess at the server's row limit.
 		 */
 		if (!qres) {
@@ -2952,7 +3048,7 @@ qcmp_mru_count(
 
 	pm1 = *ppm1;
 	pm2 = *ppm2;
-	
+
 	return (pm1->count < pm2->count)
 		   ? -1
 		   : ((pm1->count == pm2->count)
@@ -3047,7 +3143,7 @@ qcmp_mru_r_avgint(
  * timestamps.  mrulist shows 0 avgint, monlist shows a value identical
  * to lstint.
  */
-static void 
+static void
 mrulist(
 	struct parse *	pcmd,
 	FILE *		fp
@@ -3079,7 +3175,7 @@ mrulist(
 
 	mrulist_interrupted = FALSE;
 	push_ctrl_c_handler(&mrulist_ctrl_c_hook);
-	fprintf(stderr,
+	xprintf(stderr,
 		"Ctrl-C will stop MRU retrieval and display partial results.\n");
 	fflush(stderr);
 
@@ -3093,7 +3189,7 @@ mrulist(
 			if ((!strncmp(resall_eq, arg, sizeof(resall_eq)
 			    - 1) || !strncmp(resany_eq, arg,
 			    sizeof(resany_eq) - 1) || !strncmp(
-			    mincount_eq, arg, sizeof(mincount_eq) - 1) 
+			    mincount_eq, arg, sizeof(mincount_eq) - 1)
 			    || !strncmp(laddr_eq, arg, sizeof(laddr_eq)
 			    - 1) || !strncmp(maxlstint_eq, arg,
 			    sizeof(laddr_eq) - 1)) && parms + cb + 2 <=
@@ -3129,7 +3225,7 @@ mrulist(
 					parms += cb - 1;
 				}
 			} else
-				fprintf(stderr,
+				xprintf(stderr,
 					"ignoring unrecognized mrulist parameter: %s\n",
 					arg);
 		}
@@ -3161,7 +3257,7 @@ mrulist(
 	}
 
 	if (ppentry - sorted != (int)mru_count) {
-		fprintf(stderr,
+		xprintf(stderr,
 			"mru_count %u should match MRU list depth %ld.\n",
 			mru_count, (long)(ppentry - sorted));
 		free(sorted);
@@ -3188,7 +3284,7 @@ mrulist(
 		LFPTOD(&interval, favgint);
 		favgint /= recent->count;
 		avgint = (int)(favgint + 0.5);
-		fprintf(fp, "%6d %6d %4hx %c %d %d %6d %5u %s\n",
+		xprintf(fp, "%6d %6d %4hx %c %d %d %6d %5u %s\n",
 			lstint, avgint, recent->rs,
 			(RES_KOD & recent->rs)
 			    ? 'K'
@@ -3201,14 +3297,14 @@ mrulist(
 		if (showhostnames)
 			fflush(fp);
 		if (mrulist_interrupted) {
-			fputs("\n --interrupted--\n", fp);
+			xputs("\n --interrupted--\n", fp);
 			fflush(fp);
 			break;
 		}
 	}
 	fflush(fp);
 	if (debug) {
-		fprintf(stderr,
+		xprintf(stderr,
 			"--- completed, freeing sorted[] pointers\n");
 		fflush(stderr);
 	}
@@ -3216,14 +3312,14 @@ mrulist(
 
 cleanup_return:
 	if (debug) {
-		fprintf(stderr, "... freeing MRU entries\n");
+		xprintf(stderr, "... freeing MRU entries\n");
 		fflush(stderr);
 	}
 	ITER_DLIST_BEGIN(mru_list, recent, mlink, mru)
 		free(recent);
 	ITER_DLIST_END()
 	if (debug) {
-		fprintf(stderr, "... freeing hash_table[]\n");
+		xprintf(stderr, "... freeing hash_table[]\n");
 		fflush(stderr);
 	}
 	free(hash_table);
@@ -3251,13 +3347,13 @@ validate_ifnum(
 		return;
 	if (prow->ifnum + 1 <= ifnum) {
 		if (*pfields < IFSTATS_FIELDS)
-			fprintf(fp, "Warning: incomplete row with %d (of %d) fields",
+			xprintf(fp, "Warning: incomplete row with %d (of %d) fields\n",
 				*pfields, IFSTATS_FIELDS);
 		*pfields = 0;
 		prow->ifnum = ifnum;
 		return;
 	}
-	fprintf(stderr,
+	xprintf(stderr,
 		"received if index %u, have %d of %d fields for index %u, aborting.\n",
 		ifnum, *pfields, IFSTATS_FIELDS, prow->ifnum);
 	exit(1);
@@ -3280,15 +3376,15 @@ another_ifstats_field(
 
 	(*pfields)++;
 	/* we understand 12 tags */
-	if (IFSTATS_FIELDS > *pfields)	
+	if (IFSTATS_FIELDS > *pfields)
 		return;
 	/*
 	"    interface name                                        send\n"
 	" #  address/broadcast     drop flag ttl mc received sent failed peers   uptime\n"
 	"==============================================================================\n");
 	 */
-	fprintf(fp,
-		"%3u %-24.24s %c %4x %3d %2d %6d %6d %6d %5d %8d\n"
+	xprintf(fp,
+		"%3u %-24.24s %c %4x %3u %2u %6u %6u %6u %5u %8d\n"
 		"    %s\n",
 		prow->ifnum, prow->name,
 		(prow->enabled)
@@ -3298,7 +3394,7 @@ another_ifstats_field(
 		prow->received, prow->sent, prow->send_errors,
 		prow->peer_count, prow->uptime, sptoa(&prow->addr));
 	if (!SOCK_UNSPEC(&prow->bcast))
-		fprintf(fp, "    %s\n", sptoa(&prow->bcast));
+		xprintf(fp, "    %s\n", sptoa(&prow->bcast));
 	ifnum = prow->ifnum;
 	ZERO(*prow);
 	prow->ifnum = ifnum;
@@ -3308,7 +3404,7 @@ another_ifstats_field(
 /*
  * ifstats - ntpq -c ifstats modeled on ntpdc -c ifstats.
  */
-static void 
+static void
 ifstats(
 	struct parse *	pcmd,
 	FILE *		fp
@@ -3343,7 +3439,7 @@ ifstats(
 	if (qres)	/* message already displayed */
 		return;
 
-	fprintf(fp,
+	xprintf(fp,
 		"    interface name                                        send\n"
 		" #  address/broadcast     drop flag ttl mc received sent failed peers   uptime\n"
 		"==============================================================================\n");
@@ -3353,11 +3449,9 @@ ifstats(
 	fields = 0;
 	ui = 0;
 	while (nextvar(&dsize, &datap, &tag, &val)) {
+		INSIST(tag && val);
 		if (debug > 1)
-			fprintf(stderr, "nextvar gave: %s = %s\n", tag,
-				(NULL == val)
-				    ? ""
-				    : val);
+		    xprintf(stderr, "nextvar gave: %s = %s\n", tag, val);
 		comprende = FALSE;
 		switch(tag[0]) {
 
@@ -3369,7 +3463,7 @@ ifstats(
 
 		case 'b':
 			if (1 == sscanf(tag, bcast_fmt, &ui) &&
-			    (NULL == val ||
+			    ('\0' == *val ||
 			     decodenetnum(val, &row.bcast)))
 				comprende = TRUE;
 			break;
@@ -3388,14 +3482,13 @@ ifstats(
 
 		case 'm':
 			if (1 == sscanf(tag, mc_fmt, &ui) &&
-			    1 == sscanf(val, "%d", &row.mcast_count))
+			    1 == sscanf(val, "%u", &row.mcast_count))
 				comprende = TRUE;
 			break;
 
 		case 'n':
 			if (1 == sscanf(tag, name_fmt, &ui)) {
 				/* strip quotes */
-				INSIST(val);
 				len = strlen(val);
 				if (len >= 2 &&
 				    len - 2 < sizeof(row.name)) {
@@ -3409,31 +3502,31 @@ ifstats(
 
 		case 'p':
 			if (1 == sscanf(tag, pc_fmt, &ui) &&
-			    1 == sscanf(val, "%d", &row.peer_count))
+			    1 == sscanf(val, "%u", &row.peer_count))
 				comprende = TRUE;
 			break;
 
 		case 'r':
 			if (1 == sscanf(tag, rx_fmt, &ui) &&
-			    1 == sscanf(val, "%d", &row.received))
+			    1 == sscanf(val, "%u", &row.received))
 				comprende = TRUE;
 			break;
 
 		case 't':
 			if (1 == sscanf(tag, tl_fmt, &ui) &&
-			    1 == sscanf(val, "%d", &row.ttl))
+			    1 == sscanf(val, "%u", &row.ttl))
 				comprende = TRUE;
 			else if (1 == sscanf(tag, tx_fmt, &ui) &&
-				 1 == sscanf(val, "%d", &row.sent))
+				 1 == sscanf(val, "%u", &row.sent))
 				comprende = TRUE;
 			else if (1 == sscanf(tag, txerr_fmt, &ui) &&
-				 1 == sscanf(val, "%d", &row.send_errors))
+				 1 == sscanf(val, "%u", &row.send_errors))
 				comprende = TRUE;
 			break;
 
 		case 'u':
 			if (1 == sscanf(tag, up_fmt, &ui) &&
-			    1 == sscanf(val, "%d", &row.uptime))
+			    1 == sscanf(val, "%u", &row.uptime))
 				comprende = TRUE;
 			break;
 		}
@@ -3446,7 +3539,7 @@ ifstats(
 		}
 	}
 	if (fields != IFSTATS_FIELDS)
-		fprintf(fp, "Warning: incomplete row with %d (of %d) fields",
+		xprintf(fp, "Warning: incomplete row with %d (of %d) fields\n",
 			fields, IFSTATS_FIELDS);
 
 	fflush(fp);
@@ -3470,13 +3563,13 @@ validate_reslist_idx(
 		return;
 	if (prow->idx + 1 == idx) {
 		if (*pfields < RESLIST_FIELDS)
-			fprintf(fp, "Warning: incomplete row with %d (of %d) fields",
+			xprintf(fp, "Warning: incomplete row with %d (of %d) fields",
 				*pfields, RESLIST_FIELDS);
 		*pfields = 0;
 		prow->idx = idx;
 		return;
 	}
-	fprintf(stderr,
+	xprintf(stderr,
 		"received reslist index %u, have %d of %d fields for index %u, aborting.\n",
 		idx, *pfields, RESLIST_FIELDS, prow->idx);
 	exit(1);
@@ -3517,7 +3610,7 @@ another_reslist_field(
 	"           restrictions\n"
 	"==============================================================================\n");
 	 */
-	fprintf(fp,
+	xprintf(fp,
 		"%10lu %s\n"
 		"           %s\n",
 		prow->hits, addrmaskstr, prow->flagstr);
@@ -3530,7 +3623,7 @@ another_reslist_field(
 /*
  * reslist - ntpq -c reslist modeled on ntpdc -c reslist.
  */
-static void 
+static void
 reslist(
 	struct parse *	pcmd,
 	FILE *		fp
@@ -3559,7 +3652,7 @@ reslist(
 	if (qres)	/* message already displayed */
 		return;
 
-	fprintf(fp,
+	xprintf(fp,
 		"   hits    addr/prefix or addr mask\n"
 		"           restrictions\n"
 		"==============================================================================\n");
@@ -3569,11 +3662,9 @@ reslist(
 	fields = 0;
 	ui = 0;
 	while (nextvar(&dsize, &datap, &tag, &val)) {
+		INSIST(tag && val);
 		if (debug > 1)
-			fprintf(stderr, "nextvar gave: %s = %s\n", tag,
-				(NULL == val)
-				    ? ""
-				    : val);
+			xprintf(stderr, "nextvar gave: %s = %s\n", tag, val);
 		comprende = FALSE;
 		switch(tag[0]) {
 
@@ -3588,11 +3679,13 @@ reslist(
 				if (NULL == val) {
 					row.flagstr[0] = '\0';
 					comprende = TRUE;
-				} else {
-					len = strlen(val);
+				} else if ((len = strlen(val)) < sizeof(row.flagstr)) {
 					memcpy(row.flagstr, val, len);
 					row.flagstr[len] = '\0';
 					comprende = TRUE;
+				} else {
+					 /* no flags, and still !comprende */
+					row.flagstr[0] = '\0';
 				}
 			}
 			break;
@@ -3618,7 +3711,7 @@ reslist(
 		}
 	}
 	if (fields != RESLIST_FIELDS)
-		fprintf(fp, "Warning: incomplete row with %d (of %d) fields",
+		xprintf(fp, "Warning: incomplete row with %d (of %d) fields",
 			fields, RESLIST_FIELDS);
 
 	fflush(fp);
@@ -3628,7 +3721,7 @@ reslist(
 /*
  * collect_display_vdc
  */
-static void 
+static void
 collect_display_vdc(
 	associd_t	as,
 	vdc *		table,
@@ -3653,6 +3746,7 @@ collect_display_vdc(
 	int match;
 	u_long ul;
 	int vtype;
+	sockaddr_u sau;
 
 	ZERO(vl);
 	for (pvdc = table; pvdc->tag != NULL; pvdc++) {
@@ -3678,8 +3772,7 @@ collect_display_vdc(
 	 * the retrieved values.
 	 */
 	while (nextvar(&rsize, &rdata, &tag, &val)) {
-		if (NULL == val)
-			continue;
+		INSIST(tag && val);
 		n = 0;
 		for (pvdc = table; pvdc->tag != NULL; pvdc++) {
 			len = strlen(pvdc->tag);
@@ -3714,6 +3807,7 @@ collect_display_vdc(
 				}
 			}
 			/* fallthru */
+		case NTP_REFID:	/* fallthru */
 		case NTP_MODE:	/* fallthru */
 		case NTP_2BIT:
 			pvdc->v.str = estrdup(val);
@@ -3725,19 +3819,19 @@ collect_display_vdc(
 
 		case NTP_ADP:
 			if (!decodenetnum(val, &pvdc->v.sau))
-				fprintf(stderr, "malformed %s=%s\n",
+				xprintf(stderr, "malformed %s=%s\n",
 					pvdc->tag, val);
 			break;
 
 		case NTP_ADD:
 			if (0 == n) {	/* adr */
 				if (!decodenetnum(val, &pvdc->v.sau))
-					fprintf(stderr,
+					xprintf(stderr,
 						"malformed %s=%s\n",
 						pvdc->tag, val);
 			} else {	/* port */
 				if (atouint(val, &ul))
-					SET_PORT(&pvdc->v.sau, 
+					SET_PORT(&pvdc->v.sau,
 						 (u_short)ul);
 			}
 			break;
@@ -3749,7 +3843,7 @@ collect_display_vdc(
 		vtype = (0 == as)
 			    ? TYPE_SYS
 			    : TYPE_PEER;
-		fprintf(fp, "associd=%u status=%04x %s,\n", as, rstatus,
+		xprintf(fp, "associd=%u status=%04x %s,\n", as, rstatus,
 			statustoa(vtype, rstatus));
 	}
 
@@ -3758,7 +3852,7 @@ collect_display_vdc(
 
 		case NTP_STR:
 			if (pvdc->v.str != NULL) {
-				fprintf(fp, "%s  %s\n", pvdc->display,
+				xprintf(fp, "%s  %s\n", pvdc->display,
 					pvdc->v.str);
 				free(pvdc->v.str);
 				pvdc->v.str = NULL;
@@ -3767,29 +3861,48 @@ collect_display_vdc(
 
 		case NTP_ADD:	/* fallthru */
 		case NTP_ADP:
-			fprintf(fp, "%s  %s\n", pvdc->display,
+			xprintf(fp, "%s  %s\n", pvdc->display,
 				nntohostp(&pvdc->v.sau));
 			break;
 
 		case NTP_LFP:
-			fprintf(fp, "%s  %s\n", pvdc->display,
+			xprintf(fp, "%s  %s\n", pvdc->display,
 				prettydate(&pvdc->v.lfp));
 			break;
 
 		case NTP_MODE:
 			atouint(pvdc->v.str, &ul);
-			fprintf(fp, "%s  %s\n", pvdc->display,
+			xprintf(fp, "%s  %s\n", pvdc->display,
 				modetoa((int)ul));
+			free(pvdc->v.str);
+			pvdc->v.str = NULL;
 			break;
 
 		case NTP_2BIT:
 			atouint(pvdc->v.str, &ul);
-			fprintf(fp, "%s  %s\n", pvdc->display,
+			xprintf(fp, "%s  %s\n", pvdc->display,
 				leapbits[ul & 0x3]);
+			free(pvdc->v.str);
+			pvdc->v.str = NULL;
+			break;
+
+		case NTP_REFID:
+			if (!decodenetnum(pvdc->v.str, &sau)) {
+				fprintf(fp, "%s  %s\n", pvdc->display,    /* Text fmt */
+					pvdc->v.str);
+			} else if (drefid == REFID_IPV4) {
+				fprintf(fp, "%s  %s\n", pvdc->display,    /* IPv4 fmt */
+					stoa(&sau));
+			} else {
+				fprintf (fp, "%s  0x%08x\n", pvdc->display,	   /* Hex / hash */
+					 ntohl(addr2refid(&sau)));
+			}
+			free(pvdc->v.str);
+			pvdc->v.str = NULL;
 			break;
 
 		default:
-			fprintf(stderr, "unexpected vdc type %d for %s\n",
+			xprintf(stderr, "unexpected vdc type %d for %s\n",
 				pvdc->type, pvdc->tag);
 			break;
 		}
@@ -3819,6 +3932,10 @@ sysstats(
 	VDC_INIT("ss_limited",		"rate limited:         ", NTP_STR),
 	VDC_INIT("ss_kodsent",		"KoD responses:        ", NTP_STR),
 	VDC_INIT("ss_processed",	"processed for time:   ", NTP_STR),
+#if 0
+	VDC_INIT("ss_lamport",		"Lamport violations:    ", NTP_STR),
+	VDC_INIT("ss_tsrounding",	"bad timestamp rounding:", NTP_STR),
+#endif
 	VDC_INIT(NULL,			NULL,			  0)
     };
 
@@ -3843,7 +3960,7 @@ sysinfo(
 	VDC_INIT("precision",		"log2 precision:   ", NTP_STR),
 	VDC_INIT("rootdelay",		"root delay:       ", NTP_STR),
 	VDC_INIT("rootdisp",		"root dispersion:  ", NTP_STR),
-	VDC_INIT("refid",		"reference ID:     ", NTP_STR),
+	VDC_INIT("refid",		"reference ID:     ", NTP_REFID),
 	VDC_INIT("reftime",		"reference time:   ", NTP_LFP),
 	VDC_INIT("sys_jitter",		"system jitter:    ", NTP_STR),
 	VDC_INIT("clk_jitter",		"clock jitter:     ", NTP_STR),
@@ -3900,9 +4017,9 @@ monstats(
 	)
 {
     static vdc monstats_vdc[] = {
-	VDC_INIT("mru_enabled",	"enabled:            ", NTP_STR),
+	VDC_INIT("mru_enabled",		"enabled:            ", NTP_STR),
 	VDC_INIT("mru_depth",		"addresses:          ", NTP_STR),
-	VDC_INIT("mru_deepest",	"peak addresses:     ", NTP_STR),
+	VDC_INIT("mru_deepest",		"peak addresses:     ", NTP_STR),
 	VDC_INIT("mru_maxdepth",	"maximum addresses:  ", NTP_STR),
 	VDC_INIT("mru_mindepth",	"reclaim above count:", NTP_STR),
 	VDC_INIT("mru_maxage",		"reclaim older than: ", NTP_STR),

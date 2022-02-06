@@ -40,6 +40,9 @@ extern	void	setup_logfile	(const char *);
 extern	void	errno_to_str(int, char *, size_t);
 #endif
 
+extern	int	xvsbprintf(char**, char* const, char const*, va_list) NTP_PRINTF(3, 0);
+extern	int	xsbprintf(char**, char* const, char const*, ...) NTP_PRINTF(3, 4);
+
 /*
  * When building without OpenSSL, use a few macros of theirs to
  * minimize source differences in NTP.
@@ -97,29 +100,31 @@ extern	void	auth_prealloc_symkeys(int);
 extern	int	ymd2yd		(int, int, int);
 
 /* a_md5encrypt.c */
-extern	int	MD5authdecrypt	(int, const u_char *, u_int32 *, size_t, size_t);
-extern	size_t	MD5authencrypt	(int, const u_char *, u_int32 *, size_t);
+extern	int	MD5authdecrypt	(int, const u_char *, size_t, u_int32 *, size_t, size_t);
+extern	size_t	MD5authencrypt	(int, const u_char *, size_t, u_int32 *, size_t);
 extern	void	MD5auth_setkey	(keyid_t, int, const u_char *, size_t, KeyAccT *c);
 extern	u_int32	addr2refid	(sockaddr_u *);
 
 /* emalloc.c */
 #ifndef EREALLOC_CALLSITE	/* ntp_malloc.h defines */
 extern	void *	ereallocz	(void *, size_t, size_t, int);
-extern	void *	oreallocarray	(void *optr, size_t nmemb, size_t size);
+extern	void *	oreallocarrayxz	(void *optr, size_t nmemb, size_t size, size_t extra);
 #define	erealloczsite(p, n, o, z, f, l) ereallocz((p), (n), (o), (z))
 #define	emalloc(n)		ereallocz(NULL, (n), 0, FALSE)
 #define	emalloc_zero(c)		ereallocz(NULL, (c), 0, TRUE)
 #define	erealloc(p, c)		ereallocz((p), (c), 0, FALSE)
 #define erealloc_zero(p, n, o)	ereallocz((p), (n), (o), TRUE)
-#define ereallocarray(p, n, s)	oreallocarray((p), (n), (s))
-#define eallocarray(n, s)	oreallocarray(NULL, (n), (s))
+#define ereallocarray(p, n, s)	oreallocarrayxz((p), (n), (s), 0)
+#define eallocarray(n, s)	oreallocarrayxz(NULL, (n), (s), 0)
+#define ereallocarrayxz(p, n, s, x)	oreallocarrayxz((p), (n), (s), (x))
+#define eallocarrayxz(n, s, x)	oreallocarrayxz(NULL, (n), (s), (x))
 extern	char *	estrdup_impl(const char *);
 #define	estrdup(s)		estrdup_impl(s)
 #else
 extern	void *	ereallocz	(void *, size_t, size_t, int,
 				 const char *, int);
-extern	void *	oreallocarray	(void *optr, size_t nmemb, size_t size,
-				 const char *, int);
+extern	void *	oreallocarrayxz	(void *optr, size_t nmemb, size_t size,
+				 size_t extra, const char *, int);
 #define erealloczsite		ereallocz
 #define	emalloc(c)		ereallocz(NULL, (c), 0, FALSE, \
 					  __FILE__, __LINE__)
@@ -129,9 +134,13 @@ extern	void *	oreallocarray	(void *optr, size_t nmemb, size_t size,
 					  __FILE__, __LINE__)
 #define	erealloc_zero(p, n, o)	ereallocz((p), (n), (o), TRUE, \
 					  __FILE__, __LINE__)
-#define ereallocarray(p, n, s)	oreallocarray((p), (n), (s), \
+#define ereallocarray(p, n, s)	oreallocarrayxz((p), (n), (s), 0, \
 					  __FILE__, __LINE__)
-#define eallocarray(n, s)	oreallocarray(NULL, (n), (s), \
+#define eallocarray(n, s)	oreallocarrayxz(NULL, (n), (s), 0, \
+					  __FILE__, __LINE__)
+#define ereallocarrayxz(p, n, s, x)	oreallocarrayxz((p), (n), (s), (x), \
+					  __FILE__, __LINE__)
+#define eallocarrayxz(n, s, x)	oreallocarrayxz(NULL, (n), (s), (x), \
 					  __FILE__, __LINE__)
 extern	char *	estrdup_impl(const char *, const char *, int);
 #define	estrdup(s) estrdup_impl((s), __FILE__, __LINE__)
@@ -150,7 +159,7 @@ extern	const char * modetoa	(size_t);
 extern	const char * eventstr	(int);
 extern	const char * ceventstr	(int);
 extern	const char * res_match_flags(u_short);
-extern	const char * res_access_flags(u_short);
+extern	const char * res_access_flags(u_int32);
 #ifdef KERNEL_PLL
 extern	const char * k_st_flags	(u_int32);
 #endif

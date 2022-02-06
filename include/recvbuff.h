@@ -10,10 +10,26 @@
 /*
  * recvbuf memory management
  */
-#define RECV_INIT	10	/* 10 buffers initially */
+#define RECV_INIT	64	/* 64 buffers initially */
 #define RECV_LOWAT	3	/* when we're down to three buffers get more */
-#define RECV_INC	5	/* get 5 more at a time */
-#define RECV_TOOMANY	40	/* this is way too many buffers */
+#define RECV_INC	32	/* [power of 2] get 32 more at a time */
+#define RECV_BATCH	128	/* [power of 2] max increment in one sweep */
+#define RECV_TOOMANY	4096	/* this should suffice, really. TODO: tos option? */
+
+/* If we have clocks, keep an iron reserve of receive buffers for
+ * clocks only.
+ */
+#if defined(REFCLOCK)
+# if !defined(RECV_CLOCK) || RECV_CLOCK == 0
+#  undef RECV_CLOCK
+#  define RECV_CLOCK	16
+# endif
+#else
+# if defined(RECV_CLOCK)
+#  undef RECV_CLOCK
+# endif
+# define RECV_CLOCK 0
+#endif
 
 #if defined HAVE_IO_COMPLETION_PORT
 # include "ntp_iocompletionport.h"
@@ -39,9 +55,10 @@ extern HANDLE	get_recv_buff_event(void);
 /*
  *  the maximum length NTP packet contains the NTP header, one Autokey
  *  request, one Autokey response and the MAC. Assuming certificates don't
- *  get too big, the maximum packet length is set arbitrarily at 1000.
+ *  get too big, the maximum packet length is set arbitrarily at 1200.
+ *  (was 1000, but that bumps on 2048 RSA keys)
  */   
-#define	RX_BUFF_SIZE	1000		/* hail Mary */
+#define	RX_BUFF_SIZE	1200		/* hail Mary */
 
 
 typedef struct recvbuf recvbuf_t;
@@ -89,10 +106,10 @@ extern	void	freerecvbuf(struct recvbuf *);
  *  you put it back with freerecvbuf() or 
  */
 
-/* signal safe - no malloc */
-extern	struct recvbuf *get_free_recv_buffer(void);
-/* signal unsafe - may malloc */
-extern	struct recvbuf *get_free_recv_buffer_alloc(void);
+/* signal safe - no malloc, returns NULL when no bufs */
+extern	struct recvbuf *get_free_recv_buffer(int /*BOOL*/ urgent);
+/* signal unsafe - may malloc, returns NULL when no bufs */
+extern	struct recvbuf *get_free_recv_buffer_alloc(int /*BOOL*/ urgent);
 
 /*   Add a buffer to the full list
  */
@@ -113,7 +130,7 @@ extern	struct recvbuf *get_full_recv_buffer(void);
  * purge_recv_buffers_for_fd() - purges any previously-received input
  *				 from a given file descriptor.
  */
-extern	void purge_recv_buffers_for_fd(SOCKET);
+extern	void purge_recv_buffers_for_fd(int);
 
 /*
  * Checks to see if there are buffers to process

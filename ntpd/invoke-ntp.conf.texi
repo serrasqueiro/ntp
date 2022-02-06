@@ -6,7 +6,7 @@
 #
 # EDIT THIS FILE WITH CAUTION  (invoke-ntp.conf.texi)
 #
-# It has been AutoGen-ed  January 24, 2016 at 12:04:08 PM by AutoGen 5.18.5
+# It has been AutoGen-ed  June 23, 2020 at 02:20:31 AM by AutoGen 5.18.5
 # From the definitions    ntp.conf.def
 # and the template file   agtexi-file.tpl
 @end ignore
@@ -108,8 +108,14 @@ in some weird and even destructive behavior.
 If the Basic Socket Interface Extensions for IPv6 (RFC-2553)
 is detected, support for the IPv6 address family is generated
 in addition to the default support of the IPv4 address family.
-In a few cases, including the reslist billboard generated
-by ntpdc, IPv6 addresses are automatically generated.
+In a few cases, including the
+@code{reslist}
+billboard generated
+by
+@code{ntpq(1ntpqmdoc)}
+or
+@code{ntpdc(1ntpdcmdoc)},
+IPv6 addresses are automatically generated.
 IPv6 addresses can be identified by the presence of colons
 @quotedblleft{}:@quotedblright{}
 in the address field.
@@ -128,10 +134,10 @@ qualifier forces DNS resolution to the IPv6 namespace.
 See IPv6 references for the
 equivalent classes for that address family.
 @table @asis
-@item @code{pool} @kbd{address} @code{[@code{burst}]} @code{[@code{iburst}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{maxpoll} @kbd{maxpoll}]}
-@item @code{server} @kbd{address} @code{[@code{key} @kbd{key} @kbd{|} @code{autokey}]} @code{[@code{burst}]} @code{[@code{iburst}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{maxpoll} @kbd{maxpoll}]}
-@item @code{peer} @kbd{address} @code{[@code{key} @kbd{key} @kbd{|} @code{autokey}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{maxpoll} @kbd{maxpoll}]}
-@item @code{broadcast} @kbd{address} @code{[@code{key} @kbd{key} @kbd{|} @code{autokey}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{ttl} @kbd{ttl}]}
+@item @code{pool} @kbd{address} @code{[@code{burst}]} @code{[@code{iburst}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{maxpoll} @kbd{maxpoll}]} @code{[@code{xmtnonce}]}
+@item @code{server} @kbd{address} @code{[@code{key} @kbd{key} @kbd{|} @code{autokey}]} @code{[@code{burst}]} @code{[@code{iburst}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{maxpoll} @kbd{maxpoll}]} @code{[@code{true}]} @code{[@code{xmtnonce}]}
+@item @code{peer} @kbd{address} @code{[@code{key} @kbd{key} @kbd{|} @code{autokey}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{maxpoll} @kbd{maxpoll}]} @code{[@code{true}]} @code{[@code{xleave}]}
+@item @code{broadcast} @kbd{address} @code{[@code{key} @kbd{key} @kbd{|} @code{autokey}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{ttl} @kbd{ttl}]} @code{[@code{xleave}]}
 @item @code{manycastclient} @kbd{address} @code{[@code{key} @kbd{key} @kbd{|} @code{autokey}]} @code{[@code{version} @kbd{version}]} @code{[@code{prefer}]} @code{[@code{minpoll} @kbd{minpoll}]} @code{[@code{maxpoll} @kbd{maxpoll}]} @code{[@code{ttl} @kbd{ttl}]}
 @end table
 
@@ -249,7 +255,9 @@ when the server is reachable, send a burst of eight packets
 instead of the usual one.
 The packet spacing is normally 2 s;
 however, the spacing between the first and second packets
-can be changed with the calldelay command to allow
+can be changed with the
+@code{calldelay}
+command to allow
 additional time for a modem or ISDN call to complete.
 This is designed to improve timekeeping quality
 with the
@@ -260,7 +268,9 @@ When the server is unreachable, send a burst of eight packets
 instead of the usual one.
 The packet spacing is normally 2 s;
 however, the spacing between the first two packets can be
-changed with the calldelay command to allow
+changed with the
+@code{calldelay}
+command to allow
 additional time for a modem or ISDN call to complete.
 This is designed to speed the initial synchronization
 acquisition with the
@@ -274,7 +284,7 @@ option.
 All packets sent to and received from the server or peer are to
 include authentication fields encrypted using the specified
 @kbd{key}
-identifier with values from 1 to 65534, inclusive.
+identifier with values from 1 to 65535, inclusive.
 The
 default is to include no encryption field.
 @item @code{minpoll} @kbd{minpoll}
@@ -293,6 +303,8 @@ option to a lower limit of 4 (16 s).
 @item @code{noselect}
 Marks the server as unused, except for display purposes.
 The server is discarded by the selection algroithm.
+@item @code{preempt}
+Says the association can be preempted.
 @item @code{prefer}
 Marks the server as preferred.
 All other things being equal,
@@ -305,6 +317,12 @@ page
 provided in
 @file{/usr/share/doc/ntp})
 for further information.
+@item @code{true}
+Marks the server as a truechimer,
+forcing the association to always survive the selection and clustering algorithms.
+This option should almost certainly
+@emph{only}
+be used while testing an association.
 @item @code{ttl} @kbd{ttl}
 This option is used only with broadcast server and manycast
 client modes.
@@ -323,6 +341,19 @@ Specifies the version number to be used for outgoing NTP
 packets.
 Versions 1-4 are the choices, with version 4 the
 default.
+@item @code{xleave}
+Valid in
+@code{peer}
+and
+@code{broadcast}
+modes only, this flag enables interleave mode.
+@item @code{xmtnonce}
+Valid only for
+@code{server}
+and
+@code{pool}
+modes, this flag puts a random number in the packet's transmit timestamp.
+
 @end table
 @subsubsection Auxiliary Commands
 @table @asis
@@ -469,7 +500,7 @@ and
 commands and also by remote
 configuration commands sent by a
 @code{ntpdc(1ntpdcmdoc)}
-program running in
+program running on
 another machine.
 If this flag is enabled, which is the default
 case, new broadcast client and symmetric passive associations and
@@ -517,7 +548,7 @@ and reports at the NTP project page linked from
 @code{http://www.ntp.org/}.
 @subsubsection Symmetric-Key Cryptography
 The original RFC-1305 specification allows any one of possibly
-65,534 keys, each distinguished by a 32-bit key identifier, to
+65,535 keys, each distinguished by a 32-bit key identifier, to
 authenticate an association.
 The servers and clients involved must
 agree on the key and key identifier to
@@ -649,7 +680,7 @@ using the host name, network address and public keys,
 all of which are bound together by the protocol specifically
 to deflect masquerade attacks.
 For this reason Autokey
-includes the source and destinatino IP addresses in message digest
+includes the source and destination IP addresses in message digest
 computations and so the same addresses must be available
 at both the server and client.
 For this reason operation
@@ -801,7 +832,7 @@ The
 @kbd{key}
 argument is
 the key identifier for a trusted key, where the value can be in the
-range 1 to 65,534, inclusive.
+range 1 to 65,535, inclusive.
 @item @code{crypto} @code{[@code{cert} @kbd{file}]} @code{[@code{leap} @kbd{file}]} @code{[@code{randfile} @kbd{file}]} @code{[@code{host} @kbd{file}]} @code{[@code{sign} @kbd{file}]} @code{[@code{gq} @kbd{file}]} @code{[@code{gqpar} @kbd{file}]} @code{[@code{iffpar} @kbd{file}]} @code{[@code{mvpar} @kbd{file}]} @code{[@code{pw} @kbd{password}]}
 This command requires the OpenSSL library.
 It activates public key
@@ -836,8 +867,8 @@ the link
 @file{ntpkey_key_}@kbd{hostname}
 in the keys directory.
 @item @code{iffpar} @kbd{file}
-Specifies the location of the optional IFF parameters file.This
-overrides the link
+Specifies the location of the optional IFF parameters file.
+This overrides the link
 @file{ntpkey_iff_}@kbd{hostname}
 in the keys directory.
 @item @code{leap} @kbd{file}
@@ -847,8 +878,7 @@ This overrides the link
 in the keys directory.
 @item @code{mvpar} @kbd{file}
 Specifies the location of the optional MV parameters file.
-This
-overrides the link
+This overrides the link
 @file{ntpkey_mv_}@kbd{hostname}
 in the keys directory.
 @item @code{pw} @kbd{password}
@@ -895,7 +925,7 @@ The
 @kbd{key}
 argument is a key identifier
 for the trusted key, where the value can be in the range 1 to
-65,534, inclusive.
+65,535, inclusive.
 @item @code{revoke} @kbd{logsec}
 Specifies the interval between re-randomization of certain
 cryptographic values used by the Autokey scheme, as a power of 2 in
@@ -922,7 +952,7 @@ servers.
 The
 @kbd{key}
 arguments are 32-bit unsigned
-integers with values from 1 to 65,534.
+integers with values from 1 to 65,535.
 @end table
 @subsubsection Error Codes
 The following error codes are reported via the NTP control
@@ -990,7 +1020,7 @@ supported.
 Statistic files are managed using file generation sets
 and scripts in the
 @file{./scripts}
-directory of this distribution.
+directory of the source code distribution.
 Using
 these facilities and
 @sc{unix}
@@ -1319,7 +1349,9 @@ When there is already a file with this name and
 the number of links of this file is one, it is renamed appending a
 dot, the letter
 @code{C},
-and the pid of the ntpd server process.
+and the pid of the
+@code{ntpd(1ntpdmdoc)}
+server process.
 When the
 number of links is greater than one, the file is unlinked.
 This
@@ -1363,7 +1395,9 @@ Source address based restrictions are easily circumvented
 by a determined cracker.
 
 Clients can be denied service because they are explicitly
-included in the restrict list created by the restrict command
+included in the restrict list created by the
+@code{restrict}
+command
 or implicitly as the result of cryptographic or rate limit
 violations.
 Cryptographic violations include certificate
@@ -1373,9 +1407,9 @@ at abusive rates.
 Some violations cause denied service
 only for the offending packet, others cause denied service
 for a timed period and others cause the denied service for
-an indefinate period.
+an indefinite period.
 When a client or network is denied access
-for an indefinate period, the only way at present to remove
+for an indefinite period, the only way at present to remove
 the restrictions is by restarting the server.
 @subsubsection The Kiss-of-Death Packet
 Ordinarily, packets denied service are simply dropped with no
@@ -1429,9 +1463,11 @@ Packets that violate these minima are discarded
 and a kiss-o'-death packet returned if enabled.
 The default
 minimum average and minimum are 5 and 2, respectively.
-The monitor subcommand specifies the probability of discard
+The
+@code{monitor}
+subcommand specifies the probability of discard
 for packets that overflow the rate-control window.
-@item @code{restrict} @code{address} @code{[@code{mask} @kbd{mask}]} @code{[@kbd{flag} @kbd{...}]}
+@item @code{restrict} @code{address} @code{[@code{mask} @kbd{mask}]} @code{[@code{ippeerlimit} @kbd{int}]} @code{[@kbd{flag} @kbd{...}]}
 The
 @kbd{address}
 argument expressed in
@@ -1455,6 +1491,15 @@ Note that text string
 @code{default},
 with no mask option, may
 be used to indicate the default entry.
+The
+@code{ippeerlimit}
+directive limits the number of peer requests for each IP to
+@kbd{int},
+where a value of -1 means "unlimited", the current default.
+A value of 0 means "none".
+There would usually be at most 1 peering request per IP,
+but if the remote peering requests are behind a proxy
+there could well be more than 1 per IP.
 In the current implementation,
 @code{flag}
 always
@@ -1485,7 +1530,9 @@ If another KoD packet occurs within one second after the
 last one, the packet is dropped.
 @item @code{limited}
 Deny service if the packet spacing violates the lower limits specified
-in the discard command.
+in the
+@code{discard}
+command.
 A history of clients is kept using the
 monitoring capability of
 @code{ntpd(1ntpdmdoc)}.
@@ -1503,6 +1550,18 @@ basis, with later trap requestors being denied service.
 This flag
 modifies the assignment algorithm by allowing low priority traps to
 be overridden by later requests for normal priority traps.
+@item @code{noepeer}
+Deny ephemeral peer requests,
+even if they come from an authenticated source.
+Note that the ability to use a symmetric key for authentication may be restricted to
+one or more IPs or subnets via the third field of the
+@file{ntp.keys}
+file.
+This restriction is not enabled by default,
+to maintain backward compatability.
+Expect
+@code{noepeer}
+to become the default in ntp-4.4.
 @item @code{nomodify}
 Deny
 @code{ntpq(1ntpqmdoc)}
@@ -1520,10 +1579,10 @@ and
 queries.
 Time service is not affected.
 @item @code{nopeer}
-Deny packets which would result in mobilizing a new association.
-This
-includes broadcast and symmetric active packets when a configured
-association does not exist.
+Deny unauthenticated packets which would result in mobilizing a new association.
+This includes
+broadcast and symmetric active packets
+when a configured association does not exist.
 It also includes
 @code{pool}
 associations, so if you want to use servers from a 
@@ -1531,8 +1590,9 @@ associations, so if you want to use servers from a
 directive and also want to use
 @code{nopeer}
 by default, you'll want a
-@code{restrict source ...} @code{line} @code{as} @code{well} @code{that} @code{does}
-@item not
+@code{restrict source ...}
+line as well that does
+@emph{not}
 include the
 @code{nopeer}
 directive.
@@ -1545,7 +1605,9 @@ queries.
 @item @code{notrap}
 Decline to provide mode 6 control message trap service to matching
 hosts.
-The trap service is a subsystem of the ntpdq control message
+The trap service is a subsystem of the
+@code{ntpq(1ntpqmdoc)}
+control message
 protocol which is intended for use by remote event logging programs.
 @item @code{notrust}
 Deny service unless the packet is cryptographically authenticated.
@@ -1565,6 +1627,10 @@ The
 @code{ntpport}
 is considered more specific and
 is sorted later in the list.
+@item @code{serverresponse fuzz}
+When reponding to server requests,
+fuzz the low order bits of the
+@code{reftime}.
 @item @code{version}
 Deny packets that do not match the current NTP version.
 @end table
@@ -1613,8 +1679,11 @@ The library can also be used with other NTPv4 modes
 as well and is highly recommended, especially for broadcast modes.
 
 A persistent manycast client association is configured
-using the manycastclient command, which is similar to the
-server command but with a multicast (IPv4 class
+using the
+@code{manycastclient}
+command, which is similar to the
+@code{server}
+command but with a multicast (IPv4 class
 @code{D}
 or IPv6 prefix
 @code{FF})
@@ -1684,7 +1753,9 @@ command and, under normal circumstances, increments to the
 @code{maxpolll}
 value specified in this command.
 Initially, the TTL is
-set at the minimum hops specified by the ttl command.
+set at the minimum hops specified by the
+@code{ttl}
+command.
 At each retransmission the TTL is increased until reaching
 the maximum hops specified by this command or a sufficient
 number client associations have been found.
@@ -1885,6 +1956,22 @@ At the same time, the manycast
 scheme starts all over from the beginning and
 the expanding ring shrinks to the minimum and increments
 from there while collecting all servers in scope.
+@subsubsection Broadcast Options
+@table @asis
+@item @code{tos} @code{[@code{bcpollbstep} @kbd{gate}]}
+This command provides a way to delay,
+by the specified number of broadcast poll intervals,
+believing backward time steps from a broadcast server.
+Broadcast time networks are expected to be trusted.
+In the event a broadcast server's time is stepped backwards,
+there is clear benefit to having the clients notice this change
+as soon as possible.
+Attacks such as replay attacks can happen, however,
+and even though there are a number of protections built in to
+broadcast mode, attempts to perform a replay attack are possible.
+This value defaults to 0, but can be changed
+to any number of poll intervals between 0 and 4.
+@end table
 @subsubsection Manycast Options
 @table @asis
 @item @code{tos} @code{[@code{ceiling} @kbd{ceiling} | @code{cohort} @code{@{} @code{0} | @code{1} @code{@}} | @code{floor} @kbd{floor} | @code{minclock} @kbd{minclock} | @code{minsane} @kbd{minsane}]}
@@ -2200,7 +2287,7 @@ specific drivers in the
 page
 (available as part of the HTML documentation
 provided in
-@file{/usr/share/doc/ntp}).
+@file{/usr/share/doc/ntp} @file{).}
 @item @code{stratum} @kbd{int}
 Specifies the stratum number assigned to the driver, an integer
 between 0 and 15.
@@ -2293,9 +2380,10 @@ drift file is located in, and that file system links, symbolic or
 otherwise, should be avoided.
 @item @code{dscp} @kbd{value}
 This option specifies the Differentiated Services Control Point (DSCP) value,
-a 6-bit code.  The default value is 46, signifying Expedited Forwarding.
-@item @code{enable} @code{[@code{auth} | @code{bclient} | @code{calibrate} | @code{kernel} | @code{mode7} | @code{monitor} | @code{ntp} | @code{stats} | @code{unpeer_crypto_early} | @code{unpeer_crypto_nak_early} | @code{unpeer_digest_early}]}
-@item @code{disable} @code{[@code{auth} | @code{bclient} | @code{calibrate} | @code{kernel} | @code{mode7} | @code{monitor} | @code{ntp} | @code{stats} | @code{unpeer_crypto_early} | @code{unpeer_crypto_nak_early} | @code{unpeer_digest_early}]}
+a 6-bit code.
+The default value is 46, signifying Expedited Forwarding.
+@item @code{enable} @code{[@code{auth} | @code{bclient} | @code{calibrate} | @code{kernel} | @code{mode7} | @code{monitor} | @code{ntp} | @code{stats} | @code{peer_clear_digest_early} | @code{unpeer_crypto_early} | @code{unpeer_crypto_nak_early} | @code{unpeer_digest_early}]}
+@item @code{disable} @code{[@code{auth} | @code{bclient} | @code{calibrate} | @code{kernel} | @code{mode7} | @code{monitor} | @code{ntp} | @code{stats} | @code{peer_clear_digest_early} | @code{unpeer_crypto_early} | @code{unpeer_crypto_nak_early} | @code{unpeer_digest_early}]}
 Provides a way to enable or disable various server options.
 Flags not mentioned are unaffected.
 Note that all of these flags
@@ -2359,6 +2447,26 @@ In effect, this switch opens and
 closes the feedback loop, which is useful for testing.
 The default for
 this flag is
+@code{enable}.
+@item @code{peer_clear_digest_early}
+By default, if
+@code{ntpd(1ntpdmdoc)}
+is using autokey and it
+receives a crypto-NAK packet that
+passes the duplicate packet and origin timestamp checks
+the peer variables are immediately cleared.
+While this is generally a feature
+as it allows for quick recovery if a server key has changed,
+a properly forged and appropriately delivered crypto-NAK packet
+can be used in a DoS attack.
+If you have active noticable problems with this type of DoS attack
+then you should consider
+disabling this option.
+You can check your
+@code{peerstats}
+file for evidence of any of these attacks.
+The
+default for this flag is
 @code{enable}.
 @item @code{stats}
 Enables the statistics facility.
@@ -2440,6 +2548,69 @@ This option is useful for sites that run
 @code{ntpd(1ntpdmdoc)}
 on multiple hosts, with (mostly) common options (e.g., a
 restriction list).
+@item @code{interface} @code{[@code{listen} | @code{ignore} | @code{drop}]} @code{[@code{all} | @code{ipv4} | @code{ipv6} | @code{wildcard} @kbd{name} | @kbd{address} @code{[@code{/} @kbd{prefixlen}]}]}
+The
+@code{interface}
+directive controls which network addresses
+@code{ntpd(1ntpdmdoc)}
+opens, and whether input is dropped without processing.
+The first parameter determines the action for addresses
+which match the second parameter.
+The second parameter specifies a class of addresses,
+or a specific interface name,
+or an address.
+In the address case,
+@kbd{prefixlen}
+determines how many bits must match for this rule to apply.
+@code{ignore}
+prevents opening matching addresses,
+@code{drop}
+causes
+@code{ntpd(1ntpdmdoc)}
+to open the address and drop all received packets without examination.
+Multiple
+@code{interface}
+directives can be used.
+The last rule which matches a particular address determines the action for it.
+@code{interface}
+directives are disabled if any
+@code{-I},
+@code{--interface},
+@code{-L},
+or
+@code{--novirtualips}
+command-line options are specified in the configuration file,
+all available network addresses are opened.
+The
+@code{nic}
+directive is an alias for
+@code{interface}.
+@item @code{leapfile} @kbd{leapfile}
+This command loads the IERS leapseconds file and initializes the
+leapsecond values for the next leapsecond event, leapfile expiration
+time, and TAI offset.
+The file can be obtained directly from the IERS at
+@code{https://hpiers.obspm.fr/iers/bul/bulc/ntp/leap-seconds.list}
+or
+@code{ftp://hpiers.obspm.fr/iers/bul/bulc/ntp/leap-seconds.list}.
+The
+@code{leapfile}
+is scanned when
+@code{ntpd(1ntpdmdoc)}
+processes the
+@code{leapfile} @code{directive} @code{or} @code{when}
+@code{ntpd} @code{detects} @code{that} @code{the}
+@kbd{leapfile}
+has changed.
+@code{ntpd}
+checks once a day to see if the
+@kbd{leapfile}
+has changed.
+The
+@code{update-leap(1update_leapmdoc)}
+script can be run to see if the
+@kbd{leapfile}
+should be updated.
 @item @code{leapsmearinterval} @kbd{seconds}
 This EXPERIMENTAL option is only available if
 @code{ntpd(1ntpdmdoc)}
@@ -2502,7 +2673,8 @@ A
 message class may also be followed by the
 @code{all}
 keyword to enable/disable all
-messages of the respective message class.Thus, a minimal log configuration
+messages of the respective message class.
+Thus, a minimal log configuration
 could look like this:
 @verbatim
 logconfig =syncstatus +sysevents
@@ -2526,7 +2698,164 @@ This command specifies the location of an alternate log file to
 be used instead of the default system
 @code{syslog(3)}
 facility.
-This is the same operation as the -l command line option.
+This is the same operation as the
+@code{-l}
+command line option.
+@item @code{mru} @code{[@code{maxdepth} @kbd{count} | @code{maxmem} @kbd{kilobytes} | @code{mindepth} @kbd{count} | @code{maxage} @kbd{seconds} | @code{initialloc} @kbd{count} | @code{initmem} @kbd{kilobytes} | @code{incalloc} @kbd{count} | @code{incmem} @kbd{kilobytes}]}
+Controls size limite of the monitoring facility's Most Recently Used
+(MRU) list
+of client addresses, which is also used by the
+rate control facility.
+@table @asis
+@item @code{maxdepth} @kbd{count}
+@item @code{maxmem} @kbd{kilobytes}
+Equivalent upper limits on the size of the MRU list, in terms of entries or kilobytes.
+The acutal limit will be up to
+@code{incalloc}
+entries or
+@code{incmem}
+kilobytes larger.
+As with all of the
+@code{mru}
+options offered in units of entries or kilobytes, if both
+@code{maxdepth}
+and
+@code{maxmem} @code{are} @code{used,} @code{the} @code{last} @code{one} @code{used} @code{controls.}
+The default is 1024 kilobytes.
+@item @code{mindepth} @kbd{count}
+Lower limit on the MRU list size.
+When the MRU list has fewer than
+@code{mindepth}
+entries, existing entries are never removed to make room for newer ones,
+regardless of their age.
+The default is 600 entries.
+@item @code{maxage} @kbd{seconds}
+Once the MRU list has
+@code{mindepth}
+entries and an additional client is to ba added to the list,
+if the oldest entry was updated more than
+@code{maxage}
+seconds ago, that entry is removed and its storage is reused.
+If the oldest entry was updated more recently the MRU list is grown,
+subject to 
+@code{maxdepth} @code{/} @code{moxmem}.
+The default is 64 seconds.
+@item @code{initalloc} @kbd{count}
+@item @code{initmem} @kbd{kilobytes}
+Initial memory allocation at the time the monitoringfacility is first enabled,
+in terms of the number of entries or kilobytes.
+The default is 4 kilobytes.
+@item @code{incalloc} @kbd{count}
+@item @code{incmem} @kbd{kilobytes}
+Size of additional memory allocations when growing the MRU list, in entries or kilobytes.
+The default is 4 kilobytes.
+@end table
+@item @code{nonvolatile} @kbd{threshold}
+Specify the
+@kbd{threshold}
+delta in seconds before an hourly change to the
+@code{driftfile}
+(frequency file) will be written, with a default value of 1e-7 (0.1 PPM).
+The frequency file is inspected each hour.
+If the difference between the current frequency and the last value written
+exceeds the threshold, the file is written and the
+@code{threshold}
+becomes the new threshold value.
+If the threshold is not exceeeded, it is reduced by half.
+This is intended to reduce the number of file writes 
+for embedded systems with nonvolatile memory.
+@item @code{phone} @kbd{dial} @kbd{...}
+This command is used in conjunction with
+the ACTS modem driver (type 18)
+or the JJY driver (type 40, mode 100 - 180).
+For the ACTS modem driver (type 18), the arguments consist of
+a maximum of 10 telephone numbers used to dial USNO, NIST, or European
+time service.
+For the JJY driver (type 40 mode 100 - 180), the argument is 
+one telephone number used to dial the telephone JJY service.
+The Hayes command ATDT is normally prepended to the number.
+The number can contain other modem control codes as well.
+@item @code{pollskewlist} @code{[@kbd{poll} @kbd{value} | @kbd{value}]} @kbd{...} @code{[@code{default} @kbd{value} | @kbd{value}]}
+Enable skewing of our poll requests to our servers.
+@kbd{poll}
+is a number between 3 and 17 inclusive, identifying a specific poll interval.
+A poll interval is 2^n seconds in duration,
+so a poll value of 3 corresponds to 8 seconds
+and
+a poll interval of 17 corresponds to
+131,072 seconds, or about a day and a half.
+The next two numbers must be between 0 and one-half of the poll interval,
+inclusive.
+The first number specifies how early the poll may start,
+while
+the second number specifies how late the poll may be delayed.
+With no arguments, internally specified default values are chosen.
+@item @code{reset} @code{[@code{allpeers}]} @code{[@code{auth}]} @code{[@code{ctl}]} @code{[@code{io}]} @code{[@code{mem}]} @code{[@code{sys}]} @code{[@code{timer}]}
+Reset one or more groups of counters maintained by
+@code{ntpd}
+and exposed by
+@code{ntpq}
+and
+@code{ntpdc}.
+@item @code{rlimit} @code{[@code{memlock} @kbd{Nmegabytes} | @code{stacksize} @kbd{N4kPages} @code{filenum} @kbd{Nfiledescriptors}]}
+@table @asis
+@item @code{memlock} @kbd{Nmegabytes}
+Specify the number of megabytes of memory that should be
+allocated and locked.
+Probably only available under Linux, this option may be useful
+when dropping root (the
+@code{-i}
+option).
+The default is 32 megabytes on non-Linux machines, and -1 under Linux.
+-1 means "do not lock the process into memory".
+0 means "lock whatever memory the process wants into memory".
+@item @code{stacksize} @kbd{N4kPages}
+Specifies the maximum size of the process stack on systems with the
+@code{mlockall()}
+function.
+Defaults to 50 4k pages (200 4k pages in OpenBSD).
+@item @code{filenum} @kbd{Nfiledescriptors}
+Specifies the maximum number of file descriptors ntpd may have open at once.
+Defaults to the system default.
+@end table
+@item @code{saveconfigdir} @kbd{directory_path}
+Specify the directory in which to write configuration snapshots
+requested with
+.Cm ntpq 's
+@code{saveconfig}
+command.
+If
+@code{saveconfigdir}
+does not appear in the configuration file,
+@code{saveconfig}
+requests are rejected by
+@code{ntpd}.
+@item @code{saveconfig} @kbd{filename}
+Write the current configuration, including any runtime
+modifications given with
+@code{:config}
+or
+@code{config-from-file}
+to the
+@code{ntpd}
+host's
+@kbd{filename}
+in the
+@code{saveconfigdir}.
+This command will be rejected unless the
+@code{saveconfigdir}
+directive appears in
+.Cm ntpd 's
+configuration file.
+@kbd{filename}
+can use
+@code{strftime(3)}
+format directives to substitute the current date and time,
+for example,
+@code{saveconfig\ ntp-%Y%m%d-%H%M%S.conf}.
+The filename used is stored in the system variable
+@code{savedconfig}.
+Authentication is required.
 @item @code{setvar} @kbd{variable} @code{[@code{default}]}
 This command adds an additional system variable.
 These
@@ -2559,6 +2888,10 @@ holds
 the names of all peer variables and the
 @code{clock_var_list}
 holds the names of the reference clock variables.
+@item @code{sysinfo}
+Display operational summary.
+@item @code{sysstats}
+Show statistics counters maintained in the protocol module.
 @item @code{tinker} @code{[@code{allan} @kbd{allan} | @code{dispersion} @kbd{dispersion} | @code{freq} @kbd{freq} | @code{huffpuff} @kbd{huffpuff} | @code{panic} @kbd{panic} | @code{step} @kbd{step} | @code{stepback} @kbd{stepback} | @code{stepfwd} @kbd{stepfwd} | @code{stepout} @kbd{stepout}]}
 This command can be used to alter several system variables in
 very exceptional circumstances.
@@ -2636,26 +2969,18 @@ be set to any positive number in seconds.
 If set to zero, the stepout
 pulses will not be suppressed.
 @end table
-@item @code{rlimit} @code{[@code{memlock} @kbd{Nmegabytes} | @code{stacksize} @kbd{N4kPages} @code{filenum} @kbd{Nfiledescriptors}]}
-@table @asis
-@item @code{memlock} @kbd{Nmegabytes}
-Specify the number of megabytes of memory that should be
-allocated and locked.
-Probably only available under Linux, this option may be useful
-when dropping root (the
-@code{-i}
-option).
-The default is 32 megabytes on non-Linux machines, and -1 under Linux.
--1 means "do not lock the process into memory".
-0 means "lock whatever memory the process wants into memory".
-@item @code{stacksize} @kbd{N4kPages}
-Specifies the maximum size of the process stack on systems with the
-@code{mlockall()}
-function.
-Defaults to 50 4k pages (200 4k pages in OpenBSD).
-@item @code{filenum} @kbd{Nfiledescriptors}
-Specifies the maximum number of file descriptors ntpd may have open at once. Defaults to the system default.
-@end table
+@item @code{writevar} @kbd{assocID\ name} @kbd{=} @kbd{value} @kbd{[,...]}
+Write (create or update) the specified variables.
+If the
+@code{assocID}
+is zero, the variablea re from the
+system variables
+name space, otherwise they are from the
+peer variables
+name space.
+The
+@code{assocID}
+is required, as the same name can occur in both name spaces.
 @item @code{trap} @kbd{host_address} @code{[@code{port} @kbd{port_number}]} @code{[@code{interface} @kbd{interface_address}]}
 This command configures a trap receiver at the given host
 address and port number for sending messages with the specified
@@ -2667,6 +2992,13 @@ message is sent with a source address of the local interface the
 message is sent through.
 Note that on a multihomed host the
 interface used may vary from time to time with routing changes.
+@item @code{ttl} @kbd{hop} @kbd{...}
+This command specifies a list of TTL values in increasing order.
+Up to 8 values can be specified.
+In
+@code{manycast}
+mode these values are used in-turn in an expanding-ring search.
+The default is eight multiples of 32 starting at 31.
 
 The trap receiver will generally log event messages and other
 information from the server in a log file.

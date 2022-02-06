@@ -316,6 +316,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\ntpd\nt_ppsimpl.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\..\..\ntpd\ntp_config.c"
 				>
 			</File>
@@ -337,6 +341,14 @@
 			</File>
 			<File
 				RelativePath="..\..\ntpd\ntp_iocompletionport.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\ntpd\ntp_iocplmem.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\ntpd\ntp_iocpltypes.c"
 				>
 			</File>
 			<File
@@ -546,6 +558,14 @@
 			</File>
 			<File
 				RelativePath="..\..\include\ntp_iocompletionport.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\include\ntp_iocplmem.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\include\ntp_iocpltypes.h"
 				>
 			</File>
 			<File

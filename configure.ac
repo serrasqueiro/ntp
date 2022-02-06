@@ -1,7 +1,7 @@
 dnl NTP top-level configure.ac				-*- Autoconf -*-
 dnl
 m4_include([sntp/m4/version.m4])
-AC_PREREQ([2.61])
+AC_PREREQ([2.68])
 AC_INIT(
     [ntp],
     [VERSION_NUMBER],
@@ -42,13 +42,10 @@ ntp_configure_cache_version=20120806
 
 NTP_CACHEVERSION([main], [$ntp_configure_cache_version])
 
-AM_INIT_AUTOMAKE([1.10 foreign -Wall -Wno-gnu])
+AM_INIT_AUTOMAKE([1.15 foreign -Wall -Wno-gnu])
 
-dnl AM_SILENT_RULES req. automake 1.11.  [yes] defaults V=0
-m4_ifdef(
-    [AM_SILENT_RULES],
-    [AM_SILENT_RULES([yes])]
-)
+AM_SILENT_RULES([yes])
+
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 dnl the 'build' machine is where we run configure and compile
@@ -65,12 +62,15 @@ ntp_ripe_ncc_ok=${ntp_parse_ok=no}
 ntp_jupiter_ok=${ntp_jupiter_ok=no}
 
 NTP_PROG_CC
-AC_PROG_CPP
-# Do we need CXX for anything besides google test?
-AC_PROG_CXX
+NTP_COMPILER
+
+dnl # Do we need CXX for anything besides google test?
+dnl AC_PROG_CXX
 AC_PROG_YACC
-AC_PROG_CC_C_O
+dnl AC_PROG_CC_C_O 	# called by NTP_COMPILER
 AX_C99_STRUCT_INIT
+
+NTP_HARDEN([sntp])
 
 NTP_VPATH_HACK		dnl used only by ntpd/Makefile.am
 
@@ -169,7 +169,6 @@ case "$ans" in
     ;;
 esac
 PROG_NET_SNMP_CONFIG=$ans
-AC_MSG_CHECKING([for net-snmp-config path])
 case "$PROG_NET_SNMP_CONFIG" in
  no) ;;
  /*)
@@ -180,6 +179,7 @@ case "$PROG_NET_SNMP_CONFIG" in
     AS_UNSET([ac_cv_path_PATH_NET_SNMP_CONFIG])
 ;;
 esac
+AC_MSG_CHECKING([for net-snmp-config path])
 AC_MSG_RESULT([$PATH_NET_SNMP_CONFIG])
 
 case "$PATH_NET_SNMP_CONFIG" in
@@ -302,7 +302,9 @@ AC_CHECK_HEADER(
 AC_CHECK_HEADERS([fcntl.h fnmatch.h ieeefp.h inttypes.h kvm.h math.h])
 
 AC_CHECK_HEADERS([memory.h netdb.h poll.h])
-AC_CHECK_HEADERS([sgtty.h stdatomic.h stdlib.h string.h termio.h])
+AC_CHECK_HEADERS([sgtty.h stdatomic.h])
+AC_HEADER_STDBOOL
+AC_CHECK_HEADERS([stdlib.h string.h termio.h])
 AC_CHECK_HEADERS([termios.h timepps.h timex.h unistd.h])
 
 case "$host" in
@@ -377,6 +379,7 @@ case "$host" in
 esac
 AC_CHECK_HEADERS([sys/stat.h sys/stream.h stropts.h sys/stropts.h sys/syssgi.h])
 AC_CHECK_HEADERS([sys/systune.h sys/termios.h sys/tpro.h sys/wait.h])
+AC_CHECK_FUNCS([waitpid])
 case "$host" in
 *-convex-*)
     AC_CHECK_HEADERS([/sys/sync/queue.h /sys/sync/sema.h])
@@ -522,6 +525,8 @@ AC_CHECK_HEADERS([sys/timex.h], [], [], [
     # include <sys/time.h>
     #endif
 ])
+
+NTP_AF_UNSPEC
 
 AC_TYPE_SIGNAL
 AC_TYPE_OFF_T
@@ -907,7 +912,7 @@ case "$host" in
     ;;
 esac
 AC_CHECK_FUNCS([setlinebuf setpgid setpriority setsid setvbuf])
-AC_CHECK_FUNCS([strdup strerror setrlimit strchr])
+AC_CHECK_FUNCS([strdup strnlen memchr strerror setrlimit strchr])
 case "$host" in
  *-*-aix[[4-9]]*)
     # XXX only verified thru AIX6.
@@ -1742,6 +1747,7 @@ case "$ntp_ok" in
  yes)
     ntp_refclock=yes
     AC_DEFINE([CLOCK_BANC], [1], [Datum/Bancomm bc635/VME interface?])
+    AC_SEARCH_LIBS([bcStartPci], [bcsdk], , , [])
     ;;
 esac
 AC_MSG_RESULT([$ntp_ok])
@@ -3007,6 +3013,17 @@ AC_MSG_RESULT([$ans])
 
 NTP_OPENSSL
 
+AC_MSG_CHECKING([if we want to enable CMAC support])
+case "$ac_cv_header_openssl_cmac_h" in
+ yes)
+    AC_DEFINE([ENABLE_CMAC], [1], [Enable CMAC support?])
+    ans="yes"
+    ;;
+ *) ans="no"
+    ;;
+esac
+AC_MSG_RESULT([$ans])
+
 NTP_CRYPTO_RAND
 
 # if we are using OpenSSL (--with-crypto), by default Autokey is enabled
@@ -4158,6 +4175,42 @@ case "$ans" in
 esac
 
 
+AC_MSG_CHECKING([if we want the explicit 127.0.0.0/8 martian filter])
+AC_ARG_ENABLE(
+    [bug3020-fix],
+    [AS_HELP_STRING(
+	[--enable-bug3020-fix],
+	[+ Provide the explicit 127.0.0.0/8 martian filter]
+    )],
+    [ans=$enableval],
+    [ans=yes]
+)
+AC_MSG_RESULT([$ans])
+case "$ans" in
+ yes)
+    AC_DEFINE([ENABLE_BUG3020_FIX], [1],
+	[Provide the explicit 127.0.0.0/8 martian filter?])
+esac
+
+
+AC_MSG_CHECKING([if we want correct mode7 fudgetime2 behavior])
+AC_ARG_ENABLE(
+    [bug3527-fix],
+    [AS_HELP_STRING(
+	[--enable-bug3527-fix],
+	[+ provide correct mode7 fudgetime2 behavior]
+    )],
+    [ans=$enableval],
+    [ans=yes]
+)
+AC_MSG_RESULT([$ans])
+case "$ans" in
+ no)
+    AC_DEFINE([DISABLE_BUG3527_FIX], [1],
+	[use old autokey session key behavior?])
+esac
+
+
 AC_MSG_CHECKING([if we should use the IRIG sawtooth filter])
 
 case "$host" in
@@ -4322,6 +4375,28 @@ case "$ntp_ok" in
 esac
 AC_MSG_RESULT([$ntp_ok])
 
+###
+
+AC_MSG_CHECKING([if we want dynamic interleave support])
+AC_ARG_ENABLE(
+    [dynamic-interleave],
+    [AS_HELP_STRING(
+	[--enable-dynamic-interleave],
+	[- dynamic interleave support]
+    )],
+    [ntp_ok=$enableval],
+    [ntp_ok=no]
+)
+ntp_dynamic_interleave=0
+case "$ntp_ok" in
+ yes)
+    ntp_dynamic_interleave=1
+    ;;
+esac
+AC_DEFINE_UNQUOTED([DYNAMIC_INTERLEAVE], [$ntp_dynamic_interleave],
+    [support dynamic interleave?])
+AC_MSG_RESULT([$ntp_ok])
+
 NTP_UNITYBUILD
 
 dnl  gtest is needed for our tests subdirs. It would be nice if we could
@@ -4330,6 +4405,10 @@ dnl  can't be conditionalized.
 NTP_GOOGLETEST
 
 NTP_PROBLEM_TESTS
+
+###
+
+AC_CHECK_DECLS([sigsetjmp,siglongjmp], [], [], [[#include <setjmp.h>]])
 
 ###
 
@@ -4355,6 +4434,7 @@ AC_CONFIG_FILES([ntpsnmpd/Makefile])
 AC_CONFIG_FILES([parseutil/Makefile])
 AC_CONFIG_FILES([scripts/Makefile])
 AC_CONFIG_FILES([scripts/build/Makefile])
+AC_CONFIG_FILES([scripts/build/genAuthors],	[chmod +x scripts/build/genAuthors])
 AC_CONFIG_FILES([scripts/build/mkver],	[chmod +x scripts/build/mkver])
 AC_CONFIG_FILES([scripts/calc_tickadj/Makefile])
 AC_CONFIG_FILES([scripts/calc_tickadj/calc_tickadj], [chmod +x scripts/calc_tickadj/calc_tickadj])

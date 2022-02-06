@@ -10,11 +10,11 @@
 .ds B-Font B
 .ds I-Font I
 .ds R-Font R
-.TH plot_summary 1plot_summaryman "24 Jan 2016" "ntp (4.3.91)" "User Commands"
+.TH plot_summary 1plot_summaryman "23 Jun 2020" "ntp (4.2.8p15)" "User Commands"
 .\"
-.\" EDIT THIS FILE WITH CAUTION (/tmp/.ag-XtaWZe/ag-.ta4Ye)
+.\" EDIT THIS FILE WITH CAUTION (in-mem file)
 .\"
-.\" It has been AutoGen-ed January 24, 2016 at 12:00:38 PM by AutoGen 5.18.5
+.\" It has been AutoGen-ed June 23, 2020 at 02:21:47 AM by AutoGen 5.18.5
 .\" From the definitions plot_summary-opts.def
 .\" and the template file agman-cmd.tpl
 .SH NAME
@@ -74,7 +74,7 @@ Gnuplot terminal.
         This is string is passed directly to the \fBgnuplot set terminal\fP
         command.  Default is \fBx11\fP if \fBDISPLAY\fP is set and
         \fBdumb\fP is it's not'. See output from @code(gnuplot \-e "set
-        terminal") for the list of avalaible options.
+        terminal") for the list of available options.
 .TP
 .NOP \f\*[B-Font]\-\-output\-file\f[]=\f\*[I-Font]str\f[]
 Output file.

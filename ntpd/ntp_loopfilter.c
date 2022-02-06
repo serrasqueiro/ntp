@@ -15,6 +15,7 @@
 #include "ntp_io.h"
 #include "ntp_unixtime.h"
 #include "ntp_stdlib.h"
+#include "timexsup.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -167,6 +168,9 @@ u_char	sys_poll;		/* time constant/poll (log2 s) */
 int	tc_counter;		/* jiggle counter */
 double	last_offset;		/* last offset (s) */
 
+u_int	tc_twinlo;		/* TC step down not before this time */
+u_int	tc_twinhi;		/* TC step up not before this time */ 
+
 /*
  * Huff-n'-puff filter variables
  */
@@ -246,7 +250,11 @@ ntp_adjtime_error_handler(
 	)
 {
 	char des[1024] = "";	/* Decoded Error Status */
+	char *dbp, *ebp;
 
+	dbp = des;
+	ebp = dbp + sizeof(des);
+	
 	switch (ret) {
 	    case -1:
 		switch (saved_errno) {
@@ -363,37 +371,37 @@ or, from ntp_adjtime():
 				/* error (see status word) */
 
 		if (ptimex->status & STA_UNSYNC)
-			snprintf(des, sizeof(des), "%s%sClock Unsynchronized",
-				des, (*des) ? "; " : "");
+			xsbprintf(&dbp, ebp, "%sClock Unsynchronized",
+				 (*des) ? "; " : "");
 
 		if (ptimex->status & STA_CLOCKERR)
-			snprintf(des, sizeof(des), "%s%sClock Error",
-				des, (*des) ? "; " : "");
+		    xsbprintf(&dbp, ebp, "%sClock Error",
+			      (*des) ? "; " : "");
 
 		if (!(ptimex->status & STA_PPSSIGNAL)
 		    && ptimex->status & STA_PPSFREQ)
-			snprintf(des, sizeof(des), "%s%sPPS Frequency Sync wanted but no PPS",
-				des, (*des) ? "; " : "");
+		    xsbprintf(&dbp, ebp, "%sPPS Frequency Sync wanted but no PPS",
+			      (*des) ? "; " : "");
 
 		if (!(ptimex->status & STA_PPSSIGNAL)
 		    && ptimex->status & STA_PPSTIME)
-			snprintf(des, sizeof(des), "%s%sPPS Time Sync wanted but no PPS signal",
-				des, (*des) ? "; " : "");
+			xsbprintf(&dbp, ebp, "%sPPS Time Sync wanted but no PPS signal",
+				  (*des) ? "; " : "");
 
 		if (   ptimex->status & STA_PPSTIME
 		    && ptimex->status & STA_PPSJITTER)
-			snprintf(des, sizeof(des), "%s%sPPS Time Sync wanted but PPS Jitter exceeded",
-				des, (*des) ? "; " : "");
+			xsbprintf(&dbp, ebp, "%sPPS Time Sync wanted but PPS Jitter exceeded",
+				  (*des) ? "; " : "");
 
 		if (   ptimex->status & STA_PPSFREQ
 		    && ptimex->status & STA_PPSWANDER)
-			snprintf(des, sizeof(des), "%s%sPPS Frequency Sync wanted but PPS Wander exceeded",
-				des, (*des) ? "; " : "");
+			xsbprintf(&dbp, ebp, "%sPPS Frequency Sync wanted but PPS Wander exceeded",
+				  (*des) ? "; " : "");
 
 		if (   ptimex->status & STA_PPSFREQ
 		    && ptimex->status & STA_PPSERROR)
-			snprintf(des, sizeof(des), "%s%sPPS Frequency Sync wanted but Calibration error detected",
-				des, (*des) ? "; " : "");
+			xsbprintf(&dbp, ebp, "%sPPS Frequency Sync wanted but Calibration error detected",
+				  (*des) ? "; " : "");
 
 		if (pps_call && !(ptimex->status & STA_PPSSIGNAL))
 			report_event(EVNT_KERN, NULL,
@@ -701,9 +709,10 @@ local_clock(
 				 * where the FLL becomes effective.
 				 */
 				if (sys_poll >= allan_xpt)
-					clock_frequency += (fp_offset -
-					    clock_offset) / max(ULOGTOD(sys_poll),
-					    mu) * CLOCK_FLL;
+					clock_frequency +=
+					      (fp_offset - clock_offset)
+					    / ( max(ULOGTOD(sys_poll), mu)
+					       * CLOCK_FLL);
 
 				/*
 				 * The PLL frequency gain (numerator) depends on
@@ -713,8 +722,8 @@ local_clock(
 				 */
 				etemp = min(ULOGTOD(allan_xpt), mu);
 				dtemp = 4 * CLOCK_PLL * ULOGTOD(sys_poll);
-				clock_frequency += fp_offset * etemp / (dtemp *
-				    dtemp);
+				clock_frequency +=
+				    fp_offset * etemp / (dtemp * dtemp);
 			}
 			rstclock(EVNT_SYNC, fp_offset);
 			if (fabs(fp_offset) < CLOCK_FLOOR)
@@ -756,30 +765,21 @@ local_clock(
 		if (ext_enable) {
 			ntv.modes = MOD_STATUS;
 		} else {
-#ifdef STA_NANO
-			ntv.modes = MOD_BITS | MOD_NANO;
-#else /* STA_NANO */
 			ntv.modes = MOD_BITS;
-#endif /* STA_NANO */
-			if (clock_offset < 0)
-				dtemp = -.5;
-			else
-				dtemp = .5;
+			ntv.offset = var_long_from_dbl(
+			    clock_offset, &ntv.modes);
 #ifdef STA_NANO
-			ntv.offset = (int32)(clock_offset * 1e9 +
-			    dtemp);
 			ntv.constant = sys_poll;
 #else /* STA_NANO */
-			ntv.offset = (int32)(clock_offset * 1e6 +
-			    dtemp);
 			ntv.constant = sys_poll - 4;
 #endif /* STA_NANO */
 			if (ntv.constant < 0)
 				ntv.constant = 0;
 
-			ntv.esterror = (u_int32)(clock_jitter * 1e6);
-			ntv.maxerror = (u_int32)((sys_rootdelay / 2 +
-			    sys_rootdisp) * 1e6);
+			ntv.esterror = usec_long_from_dbl(
+				clock_jitter);
+			ntv.maxerror = usec_long_from_dbl(
+				sys_rootdelay / 2 + sys_rootdisp);
 			ntv.status = STA_PLL;
 
 			/*
@@ -818,22 +818,15 @@ local_clock(
 			ntp_adjtime_error_handler(__func__, &ntv, ntp_adj_ret, errno, hardpps_enable, 0, __LINE__ - 1);
 		}
 		pll_status = ntv.status;
-#ifdef STA_NANO
-		clock_offset = ntv.offset / 1e9;
-#else /* STA_NANO */
-		clock_offset = ntv.offset / 1e6;
-#endif /* STA_NANO */
+		clock_offset = dbl_from_var_long(ntv.offset, ntv.status);
 		clock_frequency = FREQTOD(ntv.freq);
 
 		/*
 		 * If the kernel PPS is lit, monitor its performance.
 		 */
 		if (ntv.status & STA_PPSTIME) {
-#ifdef STA_NANO
-			clock_jitter = ntv.jitter / 1e9;
-#else /* STA_NANO */
-			clock_jitter = ntv.jitter / 1e6;
-#endif /* STA_NANO */
+			clock_jitter = dbl_from_var_long(
+				ntv.jitter, ntv.status);
 		}
 
 #if defined(STA_NANO) && NTP_API == 4
@@ -883,34 +876,52 @@ local_clock(
 	 * increased, otherwise it is decreased. A bit of hysteresis
 	 * helps calm the dance. Works best using burst mode. Don't
 	 * fiddle with the poll during the startup clamp period.
+	 * [Bug 3615] also observe time gates to avoid eager stepping
 	 */
 	if (freq_cnt > 0) {
 		tc_counter = 0;
+		tc_twinlo  = current_time; 
+		tc_twinhi  = current_time; 
 	} else if (fabs(clock_offset) < CLOCK_PGATE * clock_jitter) {
 		tc_counter += sys_poll;
 		if (tc_counter > CLOCK_LIMIT) {
 			tc_counter = CLOCK_LIMIT;
-			if (sys_poll < peer->maxpoll) {
-				tc_counter = 0;
-				sys_poll++;
-			}
+			if (sys_poll < peer->maxpoll)
+				sys_poll += (current_time >= tc_twinhi);
 		}
 	} else {
 		tc_counter -= sys_poll << 1;
 		if (tc_counter < -CLOCK_LIMIT) {
 			tc_counter = -CLOCK_LIMIT;
-			if (sys_poll > peer->minpoll) {
-				tc_counter = 0;
-				sys_poll--;
-			}
+			if (sys_poll > peer->minpoll)
+				sys_poll -= (current_time >= tc_twinlo);
 		}
 	}
 
 	/*
 	 * If the time constant has changed, update the poll variables.
+	 *
+	 * [bug 3615] also set new time gates
+	 * The time limit for stepping down will be half the TC interval
+	 * or 60 secs from now, whatever is bigger, and the step up time
+	 * limit will be half the TC interval after the step down limit.
+	 *
+	 * The 'sys_poll' value affects the servo loop gain, and
+	 * overshooting sys_poll slows it down unnecessarily.  Stepping
+	 * down too fast also has bad effects.
+	 *
+	 * The 'tc_counter' dance itself is something that *should*
+	 * happen *once* every (1 << sys_poll) seconds, I think, but
+	 * that's not how it works right now, and adding time guards
+	 * seems the least intrusive way to handle this.
 	 */
-	if (osys_poll != sys_poll)
-		poll_update(peer, sys_poll);
+	if (osys_poll != sys_poll) {
+		u_int deadband = 1u << (sys_poll - 1);
+		tc_counter = 0;
+		tc_twinlo  = current_time + max(deadband, 60);
+		tc_twinhi  = tc_twinlo + deadband;
+		poll_update(peer, sys_poll, 0);
+	}
 
 	/*
 	 * Yibbidy, yibbbidy, yibbidy; that'h all folks.
@@ -1098,10 +1109,14 @@ start_kern_loop(void)
 	pll_control = TRUE;
 	ZERO(ntv);
 	ntv.modes = MOD_BITS;
-	ntv.status = STA_PLL;
-	ntv.maxerror = MAXDISPERSE;
-	ntv.esterror = MAXDISPERSE;
-	ntv.constant = sys_poll; /* why is it that here constant is unconditionally set to sys_poll, whereas elsewhere is is modified depending on nanosecond vs. microsecond kernel? */
+	ntv.status = STA_PLL | STA_UNSYNC;
+	ntv.maxerror = MAXDISPERSE * 1.0e6;
+	ntv.esterror = MAXDISPERSE * 1.0e6;
+	ntv.constant = sys_poll;
+	/*             ^^^^^^^^ why is it that here constant is
+	 * unconditionally set to sys_poll, whereas elsewhere is is
+	 * modified depending on nanosecond vs. microsecond kernel?
+	 */
 #ifdef SIGSYS
 	/*
 	 * Use sigsetjmp() to save state and then call ntp_adjtime(); if
@@ -1306,8 +1321,7 @@ loop_config(
 		if (freq < HUFFPUFF)
 			freq = HUFFPUFF;
 		sys_hufflen = (int)(freq / HUFFPUFF);
-		sys_huffpuff = emalloc(sizeof(sys_huffpuff[0]) *
-		    sys_hufflen);
+		sys_huffpuff = eallocarray(sys_hufflen, sizeof(sys_huffpuff[0]));
 		for (i = 0; i < sys_hufflen; i++)
 			sys_huffpuff[i] = 1e9;
 		sys_mindly = 1e9;

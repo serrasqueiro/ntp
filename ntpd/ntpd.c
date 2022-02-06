@@ -45,6 +45,9 @@
 #ifdef HAVE_SYS_STAT_H
 # include <sys/stat.h>
 #endif
+#ifdef HAVE_SYS_WAIT_H
+# include <sys/wait.h>
+#endif
 #include <stdio.h>
 #ifdef HAVE_SYS_PARAM_H
 # include <sys/param.h>
@@ -82,6 +85,10 @@
 # include <sys/mman.h>
 #endif
 
+#ifdef HAVE_SYSEXITS_H
+# include <sysexits.h>
+#endif
+
 #ifdef HAVE_TERMIOS_H
 # include <termios.h>
 #endif
@@ -104,6 +111,10 @@
 #endif
 #endif
 
+#ifdef SYS_WINNT
+# include "ntservice.h"
+#endif
+
 #ifdef _AIX
 # include <ulimit.h>
 #endif /* _AIX */
@@ -123,6 +134,9 @@
 #if defined(HAVE_PRIV_H) && defined(HAVE_SOLARIS_PRIVS)
 # include <priv.h>
 #endif /* HAVE_PRIV_H */
+#if defined(HAVE_TRUSTEDBSD_MAC)
+# include <sys/mac.h>
+#endif /* HAVE_TRUSTEDBSD_MAC */
 #endif /* HAVE_DROPROOT */
 
 #if defined (LIBSECCOMP) && (KERN_SECCOMP)
@@ -131,10 +145,36 @@
 # include <seccomp.h>
 #endif /* LIBSECCOMP and KERN_SECCOMP */
 
+#ifdef __FreeBSD__
+#include <sys/procctl.h>
+#ifndef PROC_STACKGAP_CTL
+/*
+ * Even if we compile on an older system we can still run on a newer one.
+ */
+#define	PROC_STACKGAP_CTL	17
+#define	PROC_STACKGAP_DISABLE	0x0002
+#endif
+#endif
+
 #ifdef HAVE_DNSREGISTRATION
 # include <dns_sd.h>
 DNSServiceRef mdns;
 #endif
+
+/* In case 'sysexits.h' is unavailable, define some exit codes here: */
+#ifndef EX_SOFTWARE
+# define EX_SOFTWARE	70
+#endif
+#ifndef EX_OSERR
+# define EX_OSERR	71
+#endif
+#ifndef EX_IOERR
+# define EX_IOERR	74
+#endif
+#ifndef EX_PROTOCOL
+#define EX_PROTOCOL	76
+#endif
+
 
 #ifdef HAVE_SETPGRP_0
 # define ntp_setpgrp(x, y)	setpgrp()
@@ -174,6 +214,10 @@ int mdnsreg = FALSE;
 int mdnstries = 5;
 #endif  /* HAVE_DNSREGISTRATION */
 
+#ifdef HAVE_LINUX_CAPABILITIES
+int have_caps;		/* runtime check whether capabilities work */
+#endif /* HAVE_LINUX_CAPABILITIES */
+
 #ifdef HAVE_DROPROOT
 int droproot;
 int root_dropped;
@@ -182,13 +226,12 @@ char *group;		/* group to switch to */
 const char *chrootdir;	/* directory to chroot to */
 uid_t sw_uid;
 gid_t sw_gid;
-char *endp;
 struct group *gr;
 struct passwd *pw;
 #endif /* HAVE_DROPROOT */
 
 #ifdef HAVE_WORKING_FORK
-int	waitsync_fd_to_close = -1;	/* -w/--wait-sync */
+int	daemon_pipe[2] = { -1, -1 };
 #endif
 
 /*
@@ -218,7 +261,8 @@ static	RETSIGTYPE	finish		(int);
 #endif
 
 #if !defined(SIM) && defined(HAVE_WORKING_FORK)
-static int	wait_child_sync_if	(int, long);
+static int	wait_child_sync_if	(int, unsigned long);
+static int	wait_child_exit_if	(pid_t, int);
 #endif
 
 #if !defined(SIM) && !defined(SYS_WINNT)
@@ -230,8 +274,10 @@ static	RETSIGTYPE	no_debug	(int);
 # endif	/* !DEBUG */
 #endif	/* !SIM && !SYS_WINNT */
 
+#ifndef WORK_FORK
 int	saved_argc;
 char **	saved_argv;
+#endif
 
 #ifndef SIM
 int		ntpdmain		(int, char **);
@@ -311,11 +357,16 @@ my_pthread_warmup(void)
 #if defined(HAVE_PTHREAD_ATTR_GETSTACKSIZE) && \
     defined(HAVE_PTHREAD_ATTR_SETSTACKSIZE) && \
     defined(PTHREAD_STACK_MIN)
-	rc = pthread_attr_setstacksize(&thr_attr, PTHREAD_STACK_MIN);
-	if (0 != rc)
-		msyslog(LOG_ERR,
-			"my_pthread_warmup: pthread_attr_setstacksize() -> %s",
-			strerror(rc));
+	{
+		size_t ssmin = 32*1024;	/* 32kB should be minimum */
+		if (ssmin < PTHREAD_STACK_MIN)
+			ssmin = PTHREAD_STACK_MIN;
+		rc = pthread_attr_setstacksize(&thr_attr, ssmin);
+		if (0 != rc)
+			msyslog(LOG_ERR,
+				"my_pthread_warmup: pthread_attr_setstacksize() -> %s",
+				strerror(rc));
+	}
 #endif
 	rc = pthread_create(
 		&thread, &thr_attr, my_pthread_warmup_worker, NULL);
@@ -332,6 +383,16 @@ my_pthread_warmup(void)
 
 #endif /*defined(NEED_PTHREAD_WARMUP)*/
 
+#ifdef NEED_EARLY_FORK
+static void
+dummy_callback(void) { return; }
+
+static void
+fork_nonchroot_worker(void) {
+	getaddrinfo_sometime("localhost", "ntp", NULL, INITIAL_DNS_RETRY,
+			     (gai_sometime_callback)&dummy_callback, NULL);
+}
+#endif /* NEED_EARLY_FORK */
 
 void
 parse_cmdline_opts(
@@ -368,22 +429,30 @@ main(
 
 	return ntpsim(argc, argv);
 }
-#else	/* !SIM follows */
-#ifdef NO_MAIN_ALLOWED
+#elif defined(NO_MAIN_ALLOWED)
 CALL(ntpd,"ntpd",ntpdmain);
-#else	/* !NO_MAIN_ALLOWED follows */
-#ifndef SYS_WINNT
+#elif !defined(SYS_WINNT)
 int
 main(
 	int argc,
 	char *argv[]
 	)
 {
+#   ifdef __FreeBSD__
+	{
+		/*
+		 * We Must disable ASLR stack gap on FreeBSD to avoid a
+		 * segfault. See PR/241421 and PR/241960.
+		 */
+		int aslr_var = PROC_STACKGAP_DISABLE;
+
+		pid_t my_pid = getpid();
+		procctl(P_PID, my_pid, PROC_STACKGAP_CTL, &aslr_var); 
+	}
+#   endif
 	return ntpdmain(argc, argv);
 }
 #endif /* !SYS_WINNT */
-#endif /* !NO_MAIN_ALLOWED */
-#endif /* !SIM */
 
 #ifdef _AIX
 /*
@@ -506,6 +575,249 @@ set_process_priority(void)
 }
 #endif	/* !SIM */
 
+#if !defined(SIM) && !defined(SYS_WINNT)
+/*
+ * Detach from terminal (much like daemon())
+ * Nothe that this function calls exit()
+ */
+# ifdef HAVE_WORKING_FORK
+static void
+detach_from_terminal(
+	int pipe[2],
+	long wait_sync,
+	const char *logfilename
+	)
+{
+	pid_t	cpid;
+	int	exit_code;
+#  if !defined(HAVE_SETSID) && !defined (HAVE_SETPGID) && defined(TIOCNOTTY)
+	int		fid;
+#  endif
+#  ifdef _AIX
+	struct sigaction sa;
+#  endif
+
+	cpid = fork();
+	if (0 != cpid) {
+		/* parent */
+		if (-1 == cpid) {
+			msyslog(LOG_ERR, "fork: %m");
+			exit_code = EX_OSERR;
+		} else {
+			close(pipe[1]);
+			pipe[1] = -1;
+			exit_code = wait_child_sync_if(
+					pipe[0], wait_sync);
+			DPRINTF(1, ("sync_if: rc=%d\n", exit_code));
+			if (exit_code <= 0) {
+				/* probe daemon exit code -- wait for
+				 * child process if we have an unexpected
+				 * EOF on the monitor pipe.
+				 */
+				exit_code = wait_child_exit_if(
+						cpid, (exit_code < 0));
+				DPRINTF(1, ("exit_if: rc=%d\n", exit_code));
+			}
+		}
+		exit(exit_code);
+	}
+
+	/*
+	 * child/daemon
+	 * close all open files excepting waitsync_fd_to_close.
+	 * msyslog() unreliable until after init_logging().
+	 */
+	closelog();
+	if (syslog_file != NULL) {
+		fclose(syslog_file);
+		syslog_file = NULL;
+		syslogit = TRUE;
+	}
+	close_all_except(pipe[1]);
+	pipe[0] = -1;
+	INSIST(0 == open("/dev/null", 0) && 1 == dup2(0, 1) \
+		&& 2 == dup2(0, 2));
+
+	init_logging(progname, 0, TRUE);
+	/* we lost our logfile (if any) daemonizing */
+	setup_logfile(logfilename);
+
+#  ifdef SYS_DOMAINOS
+	{
+		uid_$t puid;
+		status_$t st;
+
+		proc2_$who_am_i(&puid);
+		proc2_$make_server(&puid, &st);
+	}
+#  endif	/* SYS_DOMAINOS */
+#  ifdef HAVE_SETSID
+	if (setsid() == (pid_t)-1)
+		msyslog(LOG_ERR, "setsid(): %m");
+#  elif defined(HAVE_SETPGID)
+	if (setpgid(0, 0) == -1)
+		msyslog(LOG_ERR, "setpgid(): %m");
+#  else		/* !HAVE_SETSID && !HAVE_SETPGID follows */
+#   ifdef TIOCNOTTY
+	fid = open("/dev/tty", 2);
+	if (fid >= 0) {
+		ioctl(fid, (u_long)TIOCNOTTY, NULL);
+		close(fid);
+	}
+#   endif	/* TIOCNOTTY */
+	ntp_setpgrp(0, getpid());
+#  endif	/* !HAVE_SETSID && !HAVE_SETPGID */
+#  ifdef _AIX
+	/* Don't get killed by low-on-memory signal. */
+	sa.sa_handler = catch_danger;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	sigaction(SIGDANGER, &sa, NULL);
+#  endif	/* _AIX */
+
+	return;
+}
+# endif /* HAVE_WORKING_FORK */
+
+#ifdef HAVE_DROPROOT
+/*
+ * Map user name/number to user ID
+*/
+static int
+map_user(
+	)
+{
+	char *endp;
+
+	if (isdigit((unsigned char)*user)) {
+		sw_uid = (uid_t)strtoul(user, &endp, 0);
+		if (*endp != '\0')
+			goto getuser;
+
+		if ((pw = getpwuid(sw_uid)) != NULL) {
+			free(user);
+			user = estrdup(pw->pw_name);
+			sw_gid = pw->pw_gid;
+		} else {
+			errno = 0;
+			msyslog(LOG_ERR, "Cannot find user ID %s", user);
+			return 0;
+		}
+
+	} else {
+getuser:
+		errno = 0;
+		if ((pw = getpwnam(user)) != NULL) {
+			sw_uid = pw->pw_uid;
+			sw_gid = pw->pw_gid;
+		} else {
+			if (errno)
+				msyslog(LOG_ERR, "getpwnam(%s) failed: %m", user);
+			else
+				msyslog(LOG_ERR, "Cannot find user `%s'", user);
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+/*
+ * Map group name/number to group ID
+*/
+static int
+map_group(void)
+{
+	char *endp;
+
+	if (isdigit((unsigned char)*group)) {
+		sw_gid = (gid_t)strtoul(group, &endp, 0);
+		if (*endp != '\0')
+			goto getgroup;
+	} else {
+getgroup:
+		if ((gr = getgrnam(group)) != NULL) {
+			sw_gid = gr->gr_gid;
+		} else {
+			errno = 0;
+			msyslog(LOG_ERR, "Cannot find group `%s'", group);
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+static int
+set_group_ids(void)
+{
+	if (user && initgroups(user, sw_gid)) {
+		msyslog(LOG_ERR, "Cannot initgroups() to user `%s': %m", user);
+		return 0;
+	}
+	if (group && setgid(sw_gid)) {
+		msyslog(LOG_ERR, "Cannot setgid() to group `%s': %m", group);
+		return 0;
+	}
+	if (group && setegid(sw_gid)) {
+		msyslog(LOG_ERR, "Cannot setegid() to group `%s': %m", group);
+		return 0;
+	}
+	if (group) {
+		if (0 != setgroups(1, &sw_gid)) {
+			msyslog(LOG_ERR, "setgroups(1, %d) failed: %m", sw_gid);
+			return 0;
+		}
+	}
+	else if (pw)
+		if (0 != initgroups(pw->pw_name, pw->pw_gid)) {
+			msyslog(LOG_ERR, "initgroups(<%s>, %d) filed: %m", pw->pw_name, pw->pw_gid);
+			return 0;
+		}
+	return 1;
+}
+
+static int
+set_user_ids(void)
+{
+	if (user && setuid(sw_uid)) {
+		msyslog(LOG_ERR, "Cannot setuid() to user `%s': %m", user);
+		return 0;
+	}
+	if (user && seteuid(sw_uid)) {
+		msyslog(LOG_ERR, "Cannot seteuid() to user `%s': %m", user);
+		return 0;
+	}
+	return 1;
+}
+
+/*
+ * Change (effective) user and group IDs, also initialize the supplementary group access list
+ */
+int set_user_group_ids(void);
+int
+set_user_group_ids(void)
+{
+	/* If the the user was already mapped, no need to map it again */
+	if ((NULL != user) && (0 == sw_uid)) {
+		if (0 == map_user())
+			exit (-1);
+	}
+	/* same applies for the group */
+	if ((NULL != group) && (0 == sw_gid)) {
+		if (0 == map_group())
+			exit (-1);
+	}
+
+	if (getegid() != sw_gid && 0 == set_group_ids())
+		return 0;
+	if (geteuid() != sw_uid && 0 == set_user_ids())
+		return 0;
+
+	return 1;
+}
+#endif /* HAVE_DROPROOT */
+#endif /* !SIM */
 
 /*
  * Main program.  Initialize us, disconnect us from the tty if necessary,
@@ -529,15 +841,6 @@ ntpdmain(
 # endif
 # if defined(HAVE_WORKING_FORK)
 	long		wait_sync = 0;
-	int		pipe_fds[2];
-	int		rc;
-	int		exit_code;
-#  ifdef _AIX
-	struct sigaction sa;
-#  endif
-#  if !defined(HAVE_SETSID) && !defined (HAVE_SETPGID) && defined(TIOCNOTTY)
-	int		fid;
-#  endif
 # endif	/* HAVE_WORKING_FORK*/
 # ifdef SCO5_CLOCK
 	int		fd;
@@ -603,8 +906,15 @@ ntpdmain(
 				" %s", saved_argv[i]);
 			cp += strlen(cp);
 		}
-		msyslog(LOG_INFO, "%s", buf);
+		msyslog(LOG_NOTICE, "%s", buf);
 	}
+
+	msyslog(LOG_NOTICE, "----------------------------------------------------");
+	msyslog(LOG_NOTICE, "ntp-4 is maintained by Network Time Foundation,");
+	msyslog(LOG_NOTICE, "Inc. (NTF), a non-profit 501(c)(3) public-benefit");
+	msyslog(LOG_NOTICE, "corporation.  Support and training for ntp-4 are");
+	msyslog(LOG_NOTICE, "available at https://www.nwtime.org/support");
+	msyslog(LOG_NOTICE, "----------------------------------------------------");
 
 	/*
 	 * Install trap handlers to log errors and assertion failures.
@@ -617,7 +927,12 @@ ntpdmain(
 	/* MPE lacks the concept of root */
 # if defined(HAVE_GETUID) && !defined(MPE)
 	uid = getuid();
-	if (uid && !HAVE_OPT( SAVECONFIGQUIT )) {
+	if (uid && !HAVE_OPT( SAVECONFIGQUIT )
+#  if defined(HAVE_TRUSTEDBSD_MAC)
+	    /* We can run as non-root if the mac_ntpd policy is enabled. */
+	    && mac_is_present("ntpd") != 1
+#  endif
+	    ) {
 		msyslog_term = TRUE;
 		msyslog(LOG_ERR,
 			"must be run as root, not uid %ld", (long)uid);
@@ -675,31 +990,33 @@ ntpdmain(
 # endif
 
 # ifdef HAVE_WORKING_FORK
-	/* make sure the FDs are initialised */
-	pipe_fds[0] = -1;
-	pipe_fds[1] = -1;
-	do {					/* 'loop' once */
-		if (!HAVE_OPT( WAIT_SYNC ))
-			break;
+	/* make sure the FDs are initialised
+	 *
+	 * note: if WAIT_SYNC is requested, we *have* to fork. This will
+	 * overide any '-n' (nofork) or '-d' (debug) option presented on
+	 * the command line!
+	 */
+	if (HAVE_OPT(WAIT_SYNC)) {
 		wait_sync = OPT_VALUE_WAIT_SYNC;
-		if (wait_sync <= 0) {
+		if (wait_sync <= 0)
 			wait_sync = 0;
-			break;
-		}
-		/* -w requires a fork() even with debug > 0 */
-		nofork = FALSE;
-		if (pipe(pipe_fds)) {
-			exit_code = (errno) ? errno : -1;
-			msyslog(LOG_ERR,
-				"Pipe creation failed for --wait-sync: %m");
-			exit(exit_code);
-		}
-		waitsync_fd_to_close = pipe_fds[1];
-	} while (0);				/* 'loop' once */
+		else
+			nofork = FALSE;
+	}
+	if ( !nofork && pipe(daemon_pipe)) {
+		msyslog(LOG_ERR,
+			"Pipe creation failed for --wait-sync/daemon: %m");
+		exit(EX_OSERR);
+	}
 # endif	/* HAVE_WORKING_FORK */
 
 	init_lib();
 # ifdef SYS_WINNT
+	/*
+	 * Make sure the service is initialized before we do anything else
+	 */
+	ntservice_init();
+
 	/*
 	 * Start interpolation thread, must occur before first
 	 * get_systime()
@@ -716,75 +1033,11 @@ ntpdmain(
 	/*
 	 * Detach us from the terminal.  May need an #ifndef GIZMO.
 	 */
-	if (!nofork) {
-
 # ifdef HAVE_WORKING_FORK
-		rc = fork();
-		if (-1 == rc) {
-			exit_code = (errno) ? errno : -1;
-			msyslog(LOG_ERR, "fork: %m");
-			exit(exit_code);
-		}
-		if (rc > 0) {	
-			/* parent */
-			exit_code = wait_child_sync_if(pipe_fds[0],
-						       wait_sync);
-			exit(exit_code);
-		}
-		
-		/*
-		 * child/daemon 
-		 * close all open files excepting waitsync_fd_to_close.
-		 * msyslog() unreliable until after init_logging().
-		 */
-		closelog();
-		if (syslog_file != NULL) {
-			fclose(syslog_file);
-			syslog_file = NULL;
-			syslogit = TRUE;
-		}
-		close_all_except(waitsync_fd_to_close);
-		INSIST(0 == open("/dev/null", 0) && 1 == dup2(0, 1) \
-			&& 2 == dup2(0, 2));
-
-		init_logging(progname, 0, TRUE);
-		/* we lost our logfile (if any) daemonizing */
-		setup_logfile(logfilename);
-
-#  ifdef SYS_DOMAINOS
-		{
-			uid_$t puid;
-			status_$t st;
-
-			proc2_$who_am_i(&puid);
-			proc2_$make_server(&puid, &st);
-		}
-#  endif	/* SYS_DOMAINOS */
-#  ifdef HAVE_SETSID
-		if (setsid() == (pid_t)-1)
-			msyslog(LOG_ERR, "setsid(): %m");
-#  elif defined(HAVE_SETPGID)
-		if (setpgid(0, 0) == -1)
-			msyslog(LOG_ERR, "setpgid(): %m");
-#  else		/* !HAVE_SETSID && !HAVE_SETPGID follows */
-#   ifdef TIOCNOTTY
-		fid = open("/dev/tty", 2);
-		if (fid >= 0) {
-			ioctl(fid, (u_long)TIOCNOTTY, NULL);
-			close(fid);
-		}
-#   endif	/* TIOCNOTTY */
-		ntp_setpgrp(0, getpid());
-#  endif	/* !HAVE_SETSID && !HAVE_SETPGID */
-#  ifdef _AIX
-		/* Don't get killed by low-on-memory signal. */
-		sa.sa_handler = catch_danger;
-		sigemptyset(&sa.sa_mask);
-		sa.sa_flags = SA_RESTART;
-		sigaction(SIGDANGER, &sa, NULL);
-#  endif	/* _AIX */
-# endif		/* HAVE_WORKING_FORK */
+	if (!nofork) {
+		detach_from_terminal(daemon_pipe, wait_sync, logfilename);
 	}
+# endif		/* HAVE_WORKING_FORK */
 
 # ifdef SCO5_CLOCK
 	/*
@@ -929,8 +1182,34 @@ ntpdmain(
 	report_event(EVNT_SYSRESTART, NULL, NULL);
 	initializing = FALSE;
 
+# ifdef HAVE_LINUX_CAPABILITIES
+	{
+		/*  Check that setting capabilities actually works; we might be
+		 *  run on a kernel with disabled capabilities. We must not
+		 *  drop privileges in this case.
+		 */
+		cap_t caps;
+		caps = cap_from_text("cap_sys_time,cap_setuid,cap_setgid,cap_sys_chroot,cap_net_bind_service=pe");
+		if ( ! caps) {
+			msyslog( LOG_ERR, "cap_from_text() failed: %m" );
+			exit(-1);
+		}
+		have_caps = (cap_set_proc(caps) == 0);
+		cap_free(caps);	/* caps not NULL here! */
+	}
+# endif /* HAVE_LINUX_CAPABILITIES */
+
 # ifdef HAVE_DROPROOT
+#  ifdef HAVE_LINUX_CAPABILITIES
+	if (droproot && have_caps) {
+#  else
 	if (droproot) {
+#  endif /*HAVE_LINUX_CAPABILITIES*/
+
+#  ifdef NEED_EARLY_FORK
+		fork_nonchroot_worker();
+#  endif
+
 		/* Drop super-user privileges and chroot now if the OS supports this */
 
 #  ifdef HAVE_LINUX_CAPABILITIES
@@ -950,51 +1229,12 @@ ntpdmain(
 #  endif	/* HAVE_LINUX_CAPABILITIES || HAVE_SOLARIS_PRIVS */
 
 		if (user != NULL) {
-			if (isdigit((unsigned char)*user)) {
-				sw_uid = (uid_t)strtoul(user, &endp, 0);
-				if (*endp != '\0')
-					goto getuser;
-
-				if ((pw = getpwuid(sw_uid)) != NULL) {
-					free(user);
-					user = estrdup(pw->pw_name);
-					sw_gid = pw->pw_gid;
-				} else {
-					errno = 0;
-					msyslog(LOG_ERR, "Cannot find user ID %s", user);
-					exit (-1);
-				}
-
-			} else {
-getuser:
-				errno = 0;
-				if ((pw = getpwnam(user)) != NULL) {
-					sw_uid = pw->pw_uid;
-					sw_gid = pw->pw_gid;
-				} else {
-					if (errno)
-						msyslog(LOG_ERR, "getpwnam(%s) failed: %m", user);
-					else
-						msyslog(LOG_ERR, "Cannot find user `%s'", user);
-					exit (-1);
-				}
-			}
+			if (0 == map_user())
+				exit (-1);
 		}
 		if (group != NULL) {
-			if (isdigit((unsigned char)*group)) {
-				sw_gid = (gid_t)strtoul(group, &endp, 0);
-				if (*endp != '\0')
-					goto getgroup;
-			} else {
-getgroup:
-				if ((gr = getgrnam(group)) != NULL) {
-					sw_gid = gr->gr_gid;
-				} else {
-					errno = 0;
-					msyslog(LOG_ERR, "Cannot find group `%s'", group);
-					exit (-1);
-				}
-			}
+			if (0 == map_group())
+				exit (-1);
 		}
 
 		if (chrootdir ) {
@@ -1028,39 +1268,20 @@ getgroup:
 			exit(-1);
 		}
 #  endif /* HAVE_SOLARIS_PRIVS */
-		if (user && initgroups(user, sw_gid)) {
-			msyslog(LOG_ERR, "Cannot initgroups() to user `%s': %m", user);
-			exit (-1);
-		}
-		if (group && setgid(sw_gid)) {
-			msyslog(LOG_ERR, "Cannot setgid() to group `%s': %m", group);
-			exit (-1);
-		}
-		if (group && setegid(sw_gid)) {
-			msyslog(LOG_ERR, "Cannot setegid() to group `%s': %m", group);
-			exit (-1);
-		}
-		if (group) {
-			if (0 != setgroups(1, &sw_gid)) {
-				msyslog(LOG_ERR, "setgroups(1, %d) failed: %m", sw_gid);
-				exit (-1);
-			}
-		}
-		else if (pw)
-			if (0 != initgroups(pw->pw_name, pw->pw_gid)) {
-				msyslog(LOG_ERR, "initgroups(<%s>, %d) filed: %m", pw->pw_name, pw->pw_gid);
-				exit (-1);
-			}
-		if (user && setuid(sw_uid)) {
-			msyslog(LOG_ERR, "Cannot setuid() to user `%s': %m", user);
-			exit (-1);
-		}
-		if (user && seteuid(sw_uid)) {
-			msyslog(LOG_ERR, "Cannot seteuid() to user `%s': %m", user);
-			exit (-1);
-		}
+		if (0 == set_user_group_ids())
+			exit(-1);
 
-#  if !defined(HAVE_LINUX_CAPABILITIES) && !defined(HAVE_SOLARIS_PRIVS)
+#  if defined(HAVE_TRUSTEDBSD_MAC)
+		/*
+		 * To manipulate system time and (re-)bind to NTP_PORT as needed
+		 * following interface changes, we must either run as uid 0 or
+		 * the mac_ntpd policy module must be enabled.
+		 */
+		if (sw_uid != 0 && mac_is_present("ntpd") != 1) {
+			msyslog(LOG_ERR, "Need MAC 'ntpd' policy enabled to drop root privileges");
+			exit (-1);
+		}
+#  elif !defined(HAVE_LINUX_CAPABILITIES) && !defined(HAVE_SOLARIS_PRIVS)
 		/*
 		 * for now assume that the privilege to bind to privileged ports
 		 * is associated with running with uid 0 - should be refined on
@@ -1223,24 +1444,28 @@ int scmp_sc[] = {
 	}
 #endif /* LIBSECCOMP and KERN_SECCOMP */
 
-# ifdef HAVE_IO_COMPLETION_PORT
+#if defined(SYS_WINNT)
+	ntservice_isup();
+#elif defined(HAVE_WORKING_FORK)
+	if (daemon_pipe[1] != -1) {
+		write(daemon_pipe[1], "R\n", 2);
+	}
+#endif /* HAVE_WORKING_FORK */
+
+# ifndef HAVE_IO_COMPLETION_PORT
+	BLOCK_IO_AND_ALARM();
+	was_alarmed = FALSE;
+# endif
 
 	for (;;) {
 #if !defined(SIM) && defined(SIGDIE1)
 		if (signalled)
 			finish_safe(signo);
 #endif
+# ifdef HAVE_IO_COMPLETION_PORT
 		GetReceivedBuffers();
+
 # else /* normal I/O */
-
-	BLOCK_IO_AND_ALARM();
-	was_alarmed = FALSE;
-
-	for (;;) {
-#if !defined(SIM) && defined(SIGDIE1)
-		if (signalled)
-			finish_safe(signo);
-#endif		
 		if (alarm_flag) {	/* alarmed? */
 			was_alarmed = TRUE;
 			alarm_flag = FALSE;
@@ -1405,26 +1630,30 @@ finish(
  * wait_child_sync_if - implements parent side of -w/--wait-sync
  */
 # ifdef HAVE_WORKING_FORK
+
 static int
 wait_child_sync_if(
-	int	pipe_read_fd,
-	long	wait_sync
+	int		pipe_read_fd,
+	unsigned long	wait_sync
 	)
 {
 	int	rc;
-	int	exit_code;
+	char	ch;
 	time_t	wait_end_time;
 	time_t	cur_time;
 	time_t	wait_rem;
 	fd_set	readset;
 	struct timeval wtimeout;
 
-	if (0 == wait_sync) 
-		return 0;
+	/* we wait a bit for the child in *any* case, because on failure
+	 * of the child we have to get and inspect the exit code!
+	 */
+	wait_end_time = time(NULL);
+	if (wait_sync)
+		wait_end_time += wait_sync;
+	else
+		wait_end_time += 30;
 
-	/* waitsync_fd_to_close used solely by child */
-	close(waitsync_fd_to_close);
-	wait_end_time = time(NULL) + wait_sync;
 	do {
 		cur_time = time(NULL);
 		wait_rem = (wait_end_time > cur_time)
@@ -1439,10 +1668,9 @@ wait_child_sync_if(
 		if (-1 == rc) {
 			if (EINTR == errno)
 				continue;
-			exit_code = (errno) ? errno : -1;
 			msyslog(LOG_ERR,
-				"--wait-sync select failed: %m");
-			return exit_code;
+				"daemon startup: select failed: %m");
+			return EX_IOERR;
 		}
 		if (0 == rc) {
 			/*
@@ -1459,16 +1687,70 @@ wait_child_sync_if(
 				    NULL, &wtimeout);
 			if (0 == rc)	/* select() timeout */
 				break;
-			else		/* readable */
+		}
+		rc = read(pipe_read_fd, &ch, 1);
+		if (rc == 0) {
+			DPRINTF(2, ("daemon control: got EOF\n"));
+			return -1;	/* unexpected EOF, check daemon */
+		} else if (rc == 1) {
+			DPRINTF(2, ("daemon control: got '%c'\n",
+				    (ch >= ' ' ? ch : '.')));
+			if (ch == 'R' && !wait_sync)
 				return 0;
-		} else			/* readable */
-			return 0;
+			if (ch == 'S' && wait_sync)
+				return 0;
+		} else {
+			DPRINTF(2, ("daemon control: read 1 char failed: %s\n",
+				    strerror(errno)));
+			return EX_IOERR;
+		}
 	} while (wait_rem > 0);
 
-	fprintf(stderr, "%s: -w/--wait-sync %ld timed out.\n",
-		progname, wait_sync);
-	return ETIMEDOUT;
+	if (wait_sync) {
+		fprintf(stderr, "%s: -w/--wait-sync %ld timed out.\n",
+			progname, wait_sync);
+		return EX_PROTOCOL;
+	} else {
+		fprintf(stderr, "%s: daemon startup monitoring timed out.\n",
+			progname);
+		return 0;
+	}
 }
+
+
+static int
+wait_child_exit_if(
+	pid_t	cpid,
+	int	blocking
+	)
+{
+#    ifdef HAVE_WAITPID
+	int	rc = 0;
+	int	wstatus;
+	if (cpid == waitpid(cpid, &wstatus, (blocking ? 0 : WNOHANG))) {
+		DPRINTF(1, ("child (pid=%d) dead now\n", cpid));
+		if (WIFEXITED(wstatus)) {
+			rc = WEXITSTATUS(wstatus);
+			msyslog(LOG_ERR, "daemon child exited with code %d",
+				rc);
+		} else if (WIFSIGNALED(wstatus)) {
+			rc = EX_SOFTWARE;
+			msyslog(LOG_ERR, "daemon child died with signal %d",
+				WTERMSIG(wstatus));
+		} else {
+			rc = EX_SOFTWARE;
+			msyslog(LOG_ERR, "daemon child died with unknown cause");
+		}
+	} else {
+		DPRINTF(1, ("child (pid=%d) still alive\n", cpid));
+	}
+	return rc;
+#    else
+	UNUSED_ARG(cpid);
+	return 0;
+#    endif
+}
+
 # endif	/* HAVE_WORKING_FORK */
 
 
